@@ -23,16 +23,16 @@ Seantinel is a web application that renders sea level rise projections in 3D usi
 - Hardware: Samsung Android phone running Samsung DeX with external screen (Chromebook display)
 - Terminal: Termux
 - Runtime: Browser (no server-side rendering)
-- Language: JavaScript / TypeScript (unverified — not yet chosen)
-- Rendering: WebGL via Three.js or Deck.gl (not yet decided)
-- NASA data sources: to be determined (likely NASA Sea Level Change Portal or PODAAC)
-- Dev server: to be set up (likely Vite)
+- Language: JavaScript (plain JS, no TypeScript)
+- Rendering: Three.js (same stack as VESL/ISSM)
+- ISSM: cloned to `~/issm` — mesh engine, BAMG mesher, JS model classes, Emscripten WASM wrappers
+- NASA data sources: altimetry DEM (ICESat-2 / SRTM / Copernicus) — to be finalized
+- Dev server: Vite (not yet scaffolded)
 - How to run: `npm run dev` (unverified — package.json not yet created)
 
 Open questions:
-- TypeScript or plain JS?
-- Three.js, Deck.gl, or raw WebGL?
-- Which NASA datasets? (altimetry, tide gauge, projections?)
+- Which altimetry dataset? (ICESat-2, SRTM, Copernicus DEM)
+- Get `issm-binaries.js` from VESL server or compile via Emscripten?
 - Target browsers / mobile support?
 
 ## Layout
@@ -51,7 +51,7 @@ Ignored:
 
 ## Current Status
 
-Project scaffolded. Git initialized. No code yet. Blocked on tech stack decision — need VESL page source to identify rendering library before proceeding. Session continuity working: `/start`, `/close`, `/debug` functional. GNU screen configured with Claude stats in hardstatus line.
+Tech stack decided: Three.js + Vite + plain JS. ISSM repo cloned to `~/issm` and fully explored — JS mesh classes, BAMG/Triangle Emscripten wrappers, plot pipeline all understood. ISSM build dependencies installed on Termux (openmpi, openblas, hdf5, netcdf-c, cmake, flang). Next: write Android PETSc install script (`FC=flang`) and compile ISSM natively. Rendering concept settled: altimetry DEM → BAMG triangulation → satellite image drape → sea level water plane animation.
 
 ## Conventions
 
