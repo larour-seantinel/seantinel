@@ -1,3 +1,7 @@
+---
+description: Start a session — read project state and summarize status, bugs, and next actions
+---
+
 Read CLAUDE.md, LEARNINGS.md, TODO.md, and the last 10 git commits (`git log --oneline -10`).
 
 Then give a short summary:

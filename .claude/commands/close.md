@@ -1,3 +1,7 @@
+---
+description: Close a session — update tracking files and commit
+---
+
 Review this session's work, then:
 
 1. Append new bugs, fixes, and insights to LEARNINGS.md with today's date.

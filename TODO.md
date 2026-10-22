@@ -25,3 +25,4 @@
 ## Done
 
 - Project initialized
+- `/start`, `/close`, `/debug` commands set up and working (global + project)
