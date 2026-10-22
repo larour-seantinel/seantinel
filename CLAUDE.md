@@ -20,6 +20,8 @@ Seantinel is a web application that renders sea level rise projections in 3D usi
 
 ## Environment
 
+- Hardware: Samsung Android phone running Samsung DeX with external screen (Chromebook display)
+- Terminal: Termux
 - Runtime: Browser (no server-side rendering)
 - Language: JavaScript / TypeScript (unverified — not yet chosen)
 - Rendering: WebGL via Three.js or Deck.gl (not yet decided)
@@ -49,7 +51,7 @@ Ignored:
 
 ## Current Status
 
-Project initialized. No code written yet. Tech stack decisions pending.
+Project scaffolded. Git initialized. No code yet. Blocked on tech stack decision — need VESL page source to identify rendering library before proceeding.
 
 ## Conventions
 

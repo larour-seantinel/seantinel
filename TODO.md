@@ -6,6 +6,7 @@
 
 ## Next Up
 
+- Identify VESL tech stack (view source on vesl.jpl.nasa.gov/glaciers/haig/)
 - Decide tech stack: TypeScript vs JS, Three.js vs Deck.gl vs raw WebGL
 - Identify NASA datasets: altimetry, projections, tide gauge
 - Scaffold project with Vite
