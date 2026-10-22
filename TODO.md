@@ -26,3 +26,4 @@
 
 - Project initialized
 - `/start`, `/close`, `/debug` commands set up and working (global + project)
+- GNU screen configured: `~/.screenrc` with window tab caption and Claude stats hardstatus

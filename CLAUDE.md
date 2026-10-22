@@ -51,7 +51,7 @@ Ignored:
 
 ## Current Status
 
-Project scaffolded. Git initialized. No code yet. Blocked on tech stack decision — need VESL page source to identify rendering library before proceeding. Session continuity working: `/start`, `/close`, `/debug` functional.
+Project scaffolded. Git initialized. No code yet. Blocked on tech stack decision — need VESL page source to identify rendering library before proceeding. Session continuity working: `/start`, `/close`, `/debug` functional. GNU screen configured with Claude stats in hardstatus line.
 
 ## Conventions
 

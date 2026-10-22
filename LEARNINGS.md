@@ -9,7 +9,7 @@
 
 ## Things That Didn't Work
 
-(none yet)
+- 2026-10-22: Claude Code `statusLine` config in `settings.json` outputs to Claude Code's own TUI — not to GNU screen's hardstatus. Don't conflate the two.
 
 ## Insights and Decisions
 
@@ -17,3 +17,4 @@
 - 2026-10-22: VESL (vesl.jpl.nasa.gov) is the reference site for visualization style. Stack not yet identified — need to view page source to find JS libraries.
 - 2026-10-22: Claude Code on Android/Termux requires `CLAUDE_CODE_USE_NATIVE_FILE_SEARCH=1` for custom commands to load. This is set globally in `~/.claude/settings.json` and survives updates. Commands also need frontmatter with `description:` field.
 - 2026-10-22: Global commands live in `~/.claude/commands/`. Project commands in `.claude/commands/`. Both need frontmatter. Global ones apply to all projects.
+- 2026-10-22: GNU screen hardstatus/caption is the right place for session info on DeX. `~/.screenrc` uses `backtick` to poll `~/.claude/statusline.txt` (written by `~/.claude/statusline-command.sh` after each Claude response). Caption shows window tabs; hardstatus shows Claude stats.
