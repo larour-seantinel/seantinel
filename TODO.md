@@ -2,13 +2,12 @@
 
 ## In Progress
 
-- Compile ISSM natively on Android/Termux (step 2: PETSc with flang)
+- Compile ISSM natively on Android/Termux (step 4: `make -j5` crashed mid-build, 53 .o files exist, resumable)
 
 ## Next Up
 
-- Write `externalpackages/petsc/install-3.25-android.sh` with `FC=flang` override
-- Build Triangle via `externalpackages/triangle/install-linux.sh`
-- Configure and compile ISSM (Python bindings, no MATLAB)
+- Resume ISSM build: `make -j5 -C ~/issm` (will continue from where it crashed)
+- Verify ISSM install: check `~/issm/lib/` and `~/issm/bin/` for output
 - Get or extract `issm-binaries.js` (Emscripten WASM) from VESL server
 - Scaffold Seantinel project with Vite + Three.js
 - Implement ISSM JS model layer (load mesh2d, geometry classes)
@@ -37,3 +36,8 @@
 - Tech stack decision: Three.js + Vite + plain JS (no TypeScript, no Deck.gl)
 - ISSM repo cloned to `~/issm`; JS layer fully explored (mesh classes, BAMG wrappers, plot pipeline)
 - ISSM build dependencies installed: openmpi, openblas, hdf5, netcdf-c, autoconf, automake, libtool, cmake, flang
+- MPICH 5.0.0 built with Android patches → `~/issm/externalpackages/mpich/install/`
+- PETSc 3.25.4 built and installed → `~/issm/externalpackages/petsc/install/` (with ScaLAPACK, METIS, ParMETIS, MUMPS)
+- `install-3.25-android.sh` and `patch-mpich-android.sh` written and committed
+- Triangle built → `~/issm/externalpackages/triangle/install/lib/`
+- ISSM autoreconf + configure completed (numpy installed, `bash ./configure` required)

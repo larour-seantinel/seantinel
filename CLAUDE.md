@@ -51,7 +51,7 @@ Ignored:
 
 ## Current Status
 
-Tech stack decided: Three.js + Vite + plain JS. ISSM repo cloned to `~/issm` and fully explored — JS mesh classes, BAMG/Triangle Emscripten wrappers, plot pipeline all understood. ISSM build dependencies installed on Termux (openmpi, openblas, hdf5, netcdf-c, cmake, flang). Next: write Android PETSc install script (`FC=flang`) and compile ISSM natively. Rendering concept settled: altimetry DEM → BAMG triangulation → satellite image drape → sea level water plane animation.
+ISSM native build 90% done: MPICH 5.0.0, PETSc 3.25.4, Triangle all built on Android/Termux. ISSM itself configured (autoreconf + `bash ./configure` + numpy). `make -j5` started but crashed mid-build — 53 .o files exist, resumable. Next: resume `make -j5 -C ~/issm`, verify install, then scaffold Vite + Three.js app.
 
 ## Conventions
 
