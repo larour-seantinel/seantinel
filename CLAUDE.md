@@ -51,7 +51,7 @@ Ignored:
 
 ## Current Status
 
-ISSM native build installed but test 101 blocked by MPI double-link bug. `issm.exe` has both MPICH (via PETSc) and OpenMPI (via Termux `mpicxx` wrapper picked up at link time) in NEEDED — ABIs incompatible, segfaults on launch. Fix: rebuild with `PATH=~/issm/externalpackages/mpich/install/bin:$PATH` so libtool picks MPICH's mpicxx. Already fixed: libISSMCore.so `dbesj0_` NEEDED (copied libslatec.so into petsc lib dir, relinked). Next: clean+rebuild ISSM with MPI PATH fix, re-run test 101.
+ISSM native build **working on Android**: test 101 passes end-to-end with `np=1` (62 ms init + 61 ms solve). Multi-proc still blocked by MPICH 5.0.0 Nemesis SHM init failing on Android ashmem. Fix queued: rebuild MPICH with `--with-device=ch3:sock` (pure TCP). Note: Seantinel's primary target is WASM-in-browser (single-threaded), so multi-proc native is a nice-to-have for regression tests, not a blocker for the webapp. Next: either knock out the MPICH rebuild, or move on to `issm-binaries.js` + Vite + Three.js scaffold.
 
 ## Screenshots
 

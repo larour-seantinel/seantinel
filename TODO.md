@@ -2,9 +2,10 @@
 
 ## In Progress
 
-- Rebuild ISSM with `PATH=~/issm/externalpackages/mpich/install/bin:$PATH` to fix MPI double-link (OpenMPI + MPICH in `issm.exe` NEEDED → segfault). Clean+reconfigure+rebuild libISSMCore and issm.exe. Then re-run test 101.
+- Rebuild MPICH with `--with-device=ch3:sock` (pure TCP, no SHM) to unblock multi-proc on Android. Reuse `install-3.25-android.sh` / `patch-mpich-android.sh` as reference. Then re-run test 101 with np=2.
 
 ## Next Up
+- Permanent fix for ScaLAPACK OpenMPI leak: either patchelf `replace-needed libmpi.so libmpi.so.12` on `libscalapack.so.2.2`, or rebuild ScaLAPACK against MPICH. Currently masked by `LD_LIBRARY_PATH` ordering.
 - Decide longer-term fix for Termux netCDF4 missing `libhdf5` NEEDED: `pkg install patchelf` + patch wrapper, or lazy-import in `loadmodel.py` so tests that don't need netCDF4 skip it.
 - Get or extract `issm-binaries.js` (Emscripten WASM) from VESL server
 - Scaffold Seantinel project with Vite + Three.js
@@ -43,3 +44,6 @@
 - Fixed `libISSMCore.so` missing `dbesj0_`/`dbesj1_` NEEDED entry — copied `libslatec.so` into `petsc/install/lib/`, forced relink, verified `DT_NEEDED: libslatec.so` present
 - Confirmed scipy/numpy/netcdf4/hdf5 all installable via Termux `pkg` (not pip) — pip triggers Android lmkd OOM-kill (signal 9) on scipy source build
 - Diagnosed test 101 blocker: `issm.exe` doubly linked against MPICH (via PETSc) + OpenMPI (via Termux `mpicxx` on PATH) → ABI conflict → segfault
+- Patched MPICH's `mpicxx` wrapper (`-std=gnu++20` → `-std=gnu++17`); clean-rebuilt `src/c` with MPICH on PATH. `libISSMCore.so` and `libISSMModules.so` now cleanly MPICH-only
+- Discovered bionic resolves NEEDED by filename not SONAME — `LD_LIBRARY_PATH=mpich/lib:...` makes ScaLAPACK's `libmpi.so` NEEDED resolve to MPICH at runtime
+- Test 101 **PASSES** with `np=1` on Android: FemModel init 62 ms, solver 61 ms. Full ISSM native stack verified end-to-end
