@@ -2,7 +2,7 @@
 
 ## In Progress
 
-- Rebuild MPICH with `--with-device=ch3:sock` (pure TCP, no SHM) to unblock multi-proc on Android. Reuse `install-3.25-android.sh` / `patch-mpich-android.sh` as reference. Then re-run test 101 with np=2.
+- Run `test10*.py` regression suite with `np=4` on 10-core ARM (test101, test101eisnasasmce, test102–test109). Report pass/fail at prompt.
 
 ## Next Up
 - Permanent fix for ScaLAPACK OpenMPI leak: either patchelf `replace-needed libmpi.so libmpi.so.12` on `libscalapack.so.2.2`, or rebuild ScaLAPACK against MPICH. Currently masked by `LD_LIBRARY_PATH` ordering.
@@ -47,3 +47,4 @@
 - Patched MPICH's `mpicxx` wrapper (`-std=gnu++20` → `-std=gnu++17`); clean-rebuilt `src/c` with MPICH on PATH. `libISSMCore.so` and `libISSMModules.so` now cleanly MPICH-only
 - Discovered bionic resolves NEEDED by filename not SONAME — `LD_LIBRARY_PATH=mpich/lib:...` makes ScaLAPACK's `libmpi.so` NEEDED resolve to MPICH at runtime
 - Test 101 **PASSES** with `np=1` on Android: FemModel init 62 ms, solver 61 ms. Full ISSM native stack verified end-to-end
+- Rebuilt MPICH 5.0.0 with `--with-device=ch3:sock` (pure TCP, no SHM) — unblocks multi-proc on Android. Test 101 **PASSES** with `np=2`: 83 ms init, 135 ms solve

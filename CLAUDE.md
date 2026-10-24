@@ -51,7 +51,7 @@ Ignored:
 
 ## Current Status
 
-ISSM native build **working on Android**: test 101 passes end-to-end with `np=1` (62 ms init + 61 ms solve). Multi-proc still blocked by MPICH 5.0.0 Nemesis SHM init failing on Android ashmem. Fix queued: rebuild MPICH with `--with-device=ch3:sock` (pure TCP). Note: Seantinel's primary target is WASM-in-browser (single-threaded), so multi-proc native is a nice-to-have for regression tests, not a blocker for the webapp. Next: either knock out the MPICH rebuild, or move on to `issm-binaries.js` + Vite + Three.js scaffold.
+ISSM native build **fully working on Android**: test 101 passes with `np=1` (62 ms / 61 ms) and `np=2` (83 ms / 135 ms). MPICH 5.0.0 rebuilt with `--with-device=ch3:sock` to bypass Android's SHM restrictions. 10-core phone (4× A520 + 6× A720) available for parallel runs. Next: run the `test10*.py` regression suite with `np=4`, then move on to `issm-binaries.js` + Vite + Three.js scaffold for the webapp.
 
 ## Screenshots
 
