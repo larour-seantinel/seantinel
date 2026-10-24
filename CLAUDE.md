@@ -51,7 +51,15 @@ Ignored:
 
 ## Current Status
 
-ISSM native build 90% done: MPICH 5.0.0, PETSc 3.25.4, Triangle all built on Android/Termux. ISSM itself configured (autoreconf + `bash ./configure` + numpy). `make -j5` started but crashed mid-build — 53 .o files exist, resumable. Next: resume `make -j5 -C ~/issm`, verify install, then scaffold Vite + Three.js app.
+ISSM native build installed but test 101 blocked by MPI double-link bug. `issm.exe` has both MPICH (via PETSc) and OpenMPI (via Termux `mpicxx` wrapper picked up at link time) in NEEDED — ABIs incompatible, segfaults on launch. Fix: rebuild with `PATH=~/issm/externalpackages/mpich/install/bin:$PATH` so libtool picks MPICH's mpicxx. Already fixed: libISSMCore.so `dbesj0_` NEEDED (copied libslatec.so into petsc lib dir, relinked). Next: clean+rebuild ISSM with MPI PATH fix, re-run test 101.
+
+## Screenshots
+
+Samsung DeX screenshots land at `~/storage/shared/DCIM/Screenshots/`. Read the latest with:
+```
+ls -lt ~/storage/shared/DCIM/Screenshots/ | head -3
+```
+Then `Read` the full path to view it.
 
 ## Conventions
 

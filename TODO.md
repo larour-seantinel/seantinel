@@ -2,12 +2,10 @@
 
 ## In Progress
 
-- Compile ISSM natively on Android/Termux (step 4: `make -j5` crashed mid-build, 53 .o files exist, resumable)
+- Rebuild ISSM with `PATH=~/issm/externalpackages/mpich/install/bin:$PATH` to fix MPI double-link (OpenMPI + MPICH in `issm.exe` NEEDED → segfault). Clean+reconfigure+rebuild libISSMCore and issm.exe. Then re-run test 101.
 
 ## Next Up
-
-- Resume ISSM build: `make -j5 -C ~/issm` (will continue from where it crashed)
-- Verify ISSM install: check `~/issm/lib/` and `~/issm/bin/` for output
+- Decide longer-term fix for Termux netCDF4 missing `libhdf5` NEEDED: `pkg install patchelf` + patch wrapper, or lazy-import in `loadmodel.py` so tests that don't need netCDF4 skip it.
 - Get or extract `issm-binaries.js` (Emscripten WASM) from VESL server
 - Scaffold Seantinel project with Vite + Three.js
 - Implement ISSM JS model layer (load mesh2d, geometry classes)
@@ -41,3 +39,7 @@
 - `install-3.25-android.sh` and `patch-mpich-android.sh` written and committed
 - Triangle built → `~/issm/externalpackages/triangle/install/lib/`
 - ISSM autoreconf + configure completed (numpy installed, `bash ./configure` required)
+- ISSM `make -j5 && make install` succeeded on Android — `~/issm/bin/` and `~/issm/lib/` populated (35s build)
+- Fixed `libISSMCore.so` missing `dbesj0_`/`dbesj1_` NEEDED entry — copied `libslatec.so` into `petsc/install/lib/`, forced relink, verified `DT_NEEDED: libslatec.so` present
+- Confirmed scipy/numpy/netcdf4/hdf5 all installable via Termux `pkg` (not pip) — pip triggers Android lmkd OOM-kill (signal 9) on scipy source build
+- Diagnosed test 101 blocker: `issm.exe` doubly linked against MPICH (via PETSc) + OpenMPI (via Termux `mpicxx` on PATH) → ABI conflict → segfault
