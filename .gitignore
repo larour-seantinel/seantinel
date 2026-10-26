@@ -4,6 +4,10 @@ node_modules/
 # Build outputs
 dist/
 build/
+build-tmp/
+
+# Session-local scratch
+claudeproject
 
 # Data / outputs (future dirs)
 data/

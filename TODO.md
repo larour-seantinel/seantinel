@@ -2,13 +2,14 @@
 
 ## In Progress
 
-- Run `test10*.py` regression suite with `np=4` on 10-core ARM (test101, test101eisnasasmce, test102–test109). Report pass/fail at prompt.
+- Verify the libissmstatics.so fix on-device: install `android-spike/build/spike.apk` (18:07), press **Load libs**, confirm all 15 libs OK; press **Call native**, confirm MPICH version string + `dlamch('E')` prints. If any `FAIL lib*.so` appears, debug the next undefined-symbol link.
 
 ## Next Up
-- Permanent fix for ScaLAPACK OpenMPI leak: either patchelf `replace-needed libmpi.so libmpi.so.12` on `libscalapack.so.2.2`, or rebuild ScaLAPACK against MPICH. Currently masked by `LD_LIBRARY_PATH` ordering.
+- Figure out automatic APK install path (wireless adb blocked by Termux × Samsung protocol fault). Options: (a) copy APK into `~/storage/shared/Download/` so Files app can tap-install, (b) try adb from a USB-cable host, (c) revisit after Termux `android-tools` update.
 - Decide longer-term fix for Termux netCDF4 missing `libhdf5` NEEDED: `pkg install patchelf` + patch wrapper, or lazy-import in `loadmodel.py` so tests that don't need netCDF4 skip it.
 - Get or extract `issm-binaries.js` (Emscripten WASM) from VESL server
 - Scaffold Seantinel project with Vite + Three.js
+- Investigate 125/126/129 Restart test failures (velocities blow up to ~1e4; TotalSmb/Volume3 OK). Likely restart I/O or MPI-ordering issue; reproduces at np=4 with runme.py
 - Implement ISSM JS model layer (load mesh2d, geometry classes)
 - Implement `processmesh` + Three.js `Node` renderer (port from VESL)
 - Load a DEM (altimetry) for a specific coastal location
@@ -48,3 +49,8 @@
 - Discovered bionic resolves NEEDED by filename not SONAME — `LD_LIBRARY_PATH=mpich/lib:...` makes ScaLAPACK's `libmpi.so` NEEDED resolve to MPICH at runtime
 - Test 101 **PASSES** with `np=1` on Android: FemModel init 62 ms, solver 61 ms. Full ISSM native stack verified end-to-end
 - Rebuilt MPICH 5.0.0 with `--with-device=ch3:sock` (pure TCP, no SHM) — unblocks multi-proc on Android. Test 101 **PASSES** with `np=2`: 83 ms init, 135 ms solve
+- Permanent ScaLAPACK/`issm.exe` OpenMPI-leak fix via `patchelf` + replaced stale nemesis-era MPICH SOs in `petsc/install/lib/` with the ch3:sock rebuild. Test 101 passes without the `LD_LIBRARY_PATH=mpich/lib:...` ordering trick, and with `np=4` on 10-core ARM
+- `test10*.py` np=4 regression suite: **9/9 local tests pass** (test101–109: 2–4 s each). The 10th (`test101eisnasasmce`) is a cloud-cluster test that SSHes to AWS SMCE — not applicable on Termux, excluded
+- Hello-world APK pipeline (`~/Seantinel/android-hello/build.sh`): aapt2 + ecj + dx + openssl + apksigner. Built, signed (v1+v2+v3), installed via Downloads tap, launches "Hello Seantinel" on-screen
+- Step A — minimal WebView + JNI spike (`~/Seantinel/android-spike`): WebView loads `assets/index.html`, Java `NativeBridge` + `@JavascriptInterface`, tiny `libspike.so` calls back into JS. 12.8 KB APK, "hello from native (libspike)" rendered on-device
+- Step B lib staging — 13 ISSM/PETSc/MPICH/Termux libs patched to plain `lib*.so`, llvm-stripped (165 → 73 MB in-APK), SONAME + NEEDED chain all point to plain names. `libpetsc` NEEDED now includes `libandroid-shmem.so` (fixes `libandroid_shmctl` missing). `libISSMCore` NEEDED now includes `libissmstatics.so` (supplies `IssmComm::{comm,parallel}` + `ToolkitOptions::{toolkittype,toolkitoptions}` statics that `issm.exe` normally defines)

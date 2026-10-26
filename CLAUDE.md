@@ -51,7 +51,7 @@ Ignored:
 
 ## Current Status
 
-ISSM native build **fully working on Android**: test 101 passes with `np=1` (62 ms / 61 ms) and `np=2` (83 ms / 135 ms). MPICH 5.0.0 rebuilt with `--with-device=ch3:sock` to bypass Android's SHM restrictions. 10-core phone (4× A520 + 6× A720) available for parallel runs. Next: run the `test10*.py` regression suite with `np=4`, then move on to `issm-binaries.js` + Vite + Three.js scaffold for the webapp.
+ISSM native build fully working on Android (test101–test109 pass np=4). WebView + JNI spike working: `android-spike/` boots a WebView, loads a plain `libspike.so` via `@JavascriptInterface`, native code prints into the page. Step B — packaging the full ISSM lib chain (openblas, mpich, petsc, scalapack, slatec, metis, ISSMCore + a tiny `libissmstatics.so` that supplies the 4 statics `issm.exe` normally defines) — is built as `android-spike/build/spike.apk` (~21 MB) with every lib patchelf'd to plain `lib*.so` names and NEEDED chain. Pending: on-device verification that `System.loadLibrary` succeeds for all 15 libs and `nativeHello()` returns the MPICH version string. Wireless-adb install blocked by Termux × Samsung protocol fault; using manual Downloads-tap install.
 
 ## Screenshots
 

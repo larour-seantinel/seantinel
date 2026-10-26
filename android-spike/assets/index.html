@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seantinel Spike</title>
+<style>
+  body { font-family: sans-serif; padding: 1.5em; }
+  button { font-size: 1.1em; padding: 0.5em 1em; margin-right: 0.5em; }
+  pre { font-size: 0.85em; white-space: pre-wrap; background: #f4f4f4; padding: 0.8em; border-radius: 4px; }
+  #out { color: #0a7; }
+  #err { color: #c33; }
+</style>
+</head>
+<body>
+<h1>Seantinel Spike</h1>
+<button onclick="loadLibs()">Load libs</button>
+<button onclick="callNative()">Call native</button>
+<h3>Load status</h3>
+<pre id="load">(press "Load libs")</pre>
+<h3>Native call</h3>
+<pre id="out">(press "Call native")</pre>
+<pre id="err"></pre>
+<script>
+function loadLibs() {
+  try {
+    document.getElementById('load').textContent = window.Native.load();
+    document.getElementById('err').textContent = '';
+  } catch (e) {
+    document.getElementById('err').textContent = 'JS error: ' + e;
+  }
+}
+function callNative() {
+  try {
+    document.getElementById('out').textContent = window.Native.helloFromNative();
+    document.getElementById('err').textContent = '';
+  } catch (e) {
+    document.getElementById('err').textContent = 'JS error: ' + e;
+  }
+}
+</script>
+</body>
+</html>
