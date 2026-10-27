@@ -2,10 +2,11 @@
 
 ## In Progress
 
-- Verify the libissmstatics.so fix on-device: install `android-spike/build/spike.apk` (18:07), press **Load libs**, confirm all 15 libs OK; press **Call native**, confirm MPICH version string + `dlamch('E')` prints. If any `FAIL lib*.so` appears, debug the next undefined-symbol link.
+- (empty)
 
 ## Next Up
-- Figure out automatic APK install path (wireless adb blocked by Termux × Samsung protocol fault). Options: (a) copy APK into `~/storage/shared/Download/` so Files app can tap-install, (b) try adb from a USB-cable host, (c) revisit after Termux `android-tools` update.
+- Begin ISSM-WASM path: scaffold Seantinel with Vite + Three.js, then either extract `issm-binaries.js` from VESL or compile ISSM to WASM via Emscripten.
+- Automatic APK install from Termux is BLOCKED on Samsung — pairing listener refuses same-device connections even with adb 37.0.0p1 and local-network permission granted (traced 2026-10-26, see LEARNINGS). Use (a) copy APK into `~/storage/shared/Download/` for Files app tap-install, or (b) pair from an external device once and copy keys.
 - Decide longer-term fix for Termux netCDF4 missing `libhdf5` NEEDED: `pkg install patchelf` + patch wrapper, or lazy-import in `loadmodel.py` so tests that don't need netCDF4 skip it.
 - Get or extract `issm-binaries.js` (Emscripten WASM) from VESL server
 - Scaffold Seantinel project with Vite + Three.js
@@ -54,3 +55,4 @@
 - Hello-world APK pipeline (`~/Seantinel/android-hello/build.sh`): aapt2 + ecj + dx + openssl + apksigner. Built, signed (v1+v2+v3), installed via Downloads tap, launches "Hello Seantinel" on-screen
 - Step A — minimal WebView + JNI spike (`~/Seantinel/android-spike`): WebView loads `assets/index.html`, Java `NativeBridge` + `@JavascriptInterface`, tiny `libspike.so` calls back into JS. 12.8 KB APK, "hello from native (libspike)" rendered on-device
 - Step B lib staging — 13 ISSM/PETSc/MPICH/Termux libs patched to plain `lib*.so`, llvm-stripped (165 → 73 MB in-APK), SONAME + NEEDED chain all point to plain names. `libpetsc` NEEDED now includes `libandroid-shmem.so` (fixes `libandroid_shmctl` missing). `libISSMCore` NEEDED now includes `libissmstatics.so` (supplies `IssmComm::{comm,parallel}` + `ToolkitOptions::{toolkittype,toolkitoptions}` statics that `issm.exe` normally defines)
+- Step B **verified on-device** (2026-10-26 21:32): spike.apk v2 loads all **15/15 libs OK** (libc++_shared, libz, libandroid-shmem, libopenblas, libmpi, libmpifort, libmpicxx, libmetis, libparmetis, libslatec, libscalapack, libpetsc, libissmstatics, libISSMCore, libspike). Native call returns `MPI: MPICH Version: 5.0.0` + `ISSM dlamch('E') = 1.110223e-16`. Full ISSM/PETSc/MPICH native stack runs inside a stock Android app via JNI → WebView bridge. Added `ApiPrintf(const char*)` as 5th symbol in `libissmstatics.so`; bumped versionCode to 2 so Android treats reinstall as a true upgrade (same code was a silent-skip trap)

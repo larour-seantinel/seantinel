@@ -51,7 +51,7 @@ Ignored:
 
 ## Current Status
 
-ISSM native build fully working on Android (test101–test109 pass np=4). WebView + JNI spike working: `android-spike/` boots a WebView, loads a plain `libspike.so` via `@JavascriptInterface`, native code prints into the page. Step B — packaging the full ISSM lib chain (openblas, mpich, petsc, scalapack, slatec, metis, ISSMCore + a tiny `libissmstatics.so` that supplies the 4 statics `issm.exe` normally defines) — is built as `android-spike/build/spike.apk` (~21 MB) with every lib patchelf'd to plain `lib*.so` names and NEEDED chain. Pending: on-device verification that `System.loadLibrary` succeeds for all 15 libs and `nativeHello()` returns the MPICH version string. Wireless-adb install blocked by Termux × Samsung protocol fault; using manual Downloads-tap install.
+Full ISSM native stack runs inside a stock Android app. `android-spike/build/spike.apk` (~21 MB) loads 15/15 shared libs on-device (openblas, mpich/mpicxx/mpifort, scalapack, slatec, metis/parmetis, petsc, android-shmem, c++_shared, z, ISSMCore + libissmstatics + libspike). Native `nativeHello()` returns `MPI: MPICH Version: 5.0.0` + `ISSM dlamch('E') = 1.110223e-16` through a WebView + JNI bridge. `libissmstatics.so` supplies 5 issm.exe-only symbols (`IssmComm::{comm,parallel}`, `ToolkitOptions::{toolkittype,toolkitoptions}`, `ApiPrintf`). All libs patchelf'd to plain `lib*.so` names + NEEDED chain. Underlying test101–test109 still pass np=4 in Termux. Install cycle is manual Downloads tap-install (wireless adb blocked by Samsung firewall); bump `versionCode` on every rebuild. Next: begin ISSM-WASM path for the browser build of Seantinel.
 
 ## Screenshots
 
