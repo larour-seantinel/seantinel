@@ -12,6 +12,8 @@ claudeproject
 # Data / outputs (future dirs)
 data/
 output/
+# Keep packaged APK assets (not local scratch).
+!android-spike/assets/data/
 
 # Binary/document strays
 *.pdf

@@ -71,7 +71,11 @@ echo "[4b/9] patchelf: add libissmstatics.so to libISSMCore NEEDED"
 patchelf --add-needed libissmstatics.so $LIBDIR/libISSMCore.so
 
 echo "[4c/9] build libspike.so"
-clang -c -fPIC -O2 $INC -o $BUILD/spike.o jni/spike.c
+ISSM_INC="-DHAVE_CONFIG_H -I$ISSM -I$ISSM/src/c \
+    -I$ISSM/externalpackages/triangle/install/include \
+    -I$ISSM/externalpackages/petsc/install/include \
+    -I$ISSM/externalpackages/mpich/install/include"
+clang++ -c -fPIC -O2 -std=gnu++17 $INC $ISSM_INC -o $BUILD/spike.o jni/spike.cpp
 clang++ -shared -fPIC -O2 \
     -L$LIBDIR \
     -Wl,-rpath,'$ORIGIN' \

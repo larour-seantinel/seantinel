@@ -14,7 +14,10 @@ public class MainActivity extends Activity {
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
-        web.addJavascriptInterface(new NativeBridge(), "Native");
+        s.setAllowFileAccess(true);
+        s.setAllowFileAccessFromFileURLs(true);
+        s.setAllowUniversalAccessFromFileURLs(true);
+        web.addJavascriptInterface(new NativeBridge(this), "Native");
         web.loadUrl("file:///android_asset/index.html");
     }
 }

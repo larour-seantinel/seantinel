@@ -5,14 +5,18 @@
 - (empty)
 
 ## Next Up
-- Begin ISSM-WASM path: scaffold Seantinel with Vite + Three.js, then either extract `issm-binaries.js` from VESL or compile ISSM to WASM via Emscripten.
+- Dropdown to pick any field in `StressbalanceSolution` (Vel, Vx, Vy, Pressure, DeviatoricStress{xx,yy,xy}, MassFlux1–6) and re-render with auto-scaled colorbar. All fields already present in the parsed outbin; just needs a `<select>` + re-call `renderVel` with the chosen key.
+- Dropdown to pick test 101–110. Scope decisions needed first:
+  - 102/103/104/107 are 3D (SSA3d, HO, FS, Masstransport3d) — needs 3D rendering in `processmesh.js`/`Node.js` (prisms, not just triangles).
+  - 108/109 are Thermal/Transient — multi-step time dimension; add a step slider.
+  - 109/110 are transient — multiple records per field; need per-step picking too.
+  - APK asset bloat: 10 × (bin + toolkits + mesh json) ≈ 20–50 MB.
+  - Easy subset first: 101, 105, 106 (all 2D, steady). Then 110 (2D transient, needs step UI). Defer 3D tests until 3D plotter is written.
+- Move ISSM solve to a child process so it can rerun without force-stopping the app, and prepare the path to np≥2 (fork+exec `issm.exe` renamed as `lib/arm64-v8a/libissmexe.so`, with `lib*.so`-extract trick for exec permission).
+- Begin ISSM-WASM path (browser build of Seantinel): extract `issm-binaries.js` from VESL or compile via Emscripten. Current native-stack path is Android-only.
 - Automatic APK install from Termux is BLOCKED on Samsung — pairing listener refuses same-device connections even with adb 37.0.0p1 and local-network permission granted (traced 2026-10-26, see LEARNINGS). Use (a) copy APK into `~/storage/shared/Download/` for Files app tap-install, or (b) pair from an external device once and copy keys.
 - Decide longer-term fix for Termux netCDF4 missing `libhdf5` NEEDED: `pkg install patchelf` + patch wrapper, or lazy-import in `loadmodel.py` so tests that don't need netCDF4 skip it.
-- Get or extract `issm-binaries.js` (Emscripten WASM) from VESL server
-- Scaffold Seantinel project with Vite + Three.js
 - Investigate 125/126/129 Restart test failures (velocities blow up to ~1e4; TotalSmb/Volume3 OK). Likely restart I/O or MPI-ordering issue; reproduces at np=4 with runme.py
-- Implement ISSM JS model layer (load mesh2d, geometry classes)
-- Implement `processmesh` + Three.js `Node` renderer (port from VESL)
 - Load a DEM (altimetry) for a specific coastal location
 - Run BAMG triangulation on DEM via WASM
 - Drape satellite image texture over triangulated terrain mesh
@@ -56,3 +60,8 @@
 - Step A — minimal WebView + JNI spike (`~/Seantinel/android-spike`): WebView loads `assets/index.html`, Java `NativeBridge` + `@JavascriptInterface`, tiny `libspike.so` calls back into JS. 12.8 KB APK, "hello from native (libspike)" rendered on-device
 - Step B lib staging — 13 ISSM/PETSc/MPICH/Termux libs patched to plain `lib*.so`, llvm-stripped (165 → 73 MB in-APK), SONAME + NEEDED chain all point to plain names. `libpetsc` NEEDED now includes `libandroid-shmem.so` (fixes `libandroid_shmctl` missing). `libISSMCore` NEEDED now includes `libissmstatics.so` (supplies `IssmComm::{comm,parallel}` + `ToolkitOptions::{toolkittype,toolkitoptions}` statics that `issm.exe` normally defines)
 - Step B **verified on-device** (2026-10-26 21:32): spike.apk v2 loads all **15/15 libs OK** (libc++_shared, libz, libandroid-shmem, libopenblas, libmpi, libmpifort, libmpicxx, libmetis, libparmetis, libslatec, libscalapack, libpetsc, libissmstatics, libISSMCore, libspike). Native call returns `MPI: MPICH Version: 5.0.0` + `ISSM dlamch('E') = 1.110223e-16`. Full ISSM/PETSc/MPICH native stack runs inside a stock Android app via JNI → WebView bridge. Added `ApiPrintf(const char*)` as 5th symbol in `libissmstatics.so`; bumped versionCode to 2 so Android treats reinstall as a true upgrade (same code was a silent-skip trap)
+- Step C — **test101 StressbalanceSolution runs on-device inside the APK via JNI (np=1)**. Added `nativeRunTest101(filesDir)` to `libspike.so` that mirrors `issm.cpp`'s `main()`; assets `test101.bin`/`test101.toolkits` ship with the APK and get copied to `getFilesDir()` on first run; stdout/stderr `dup2`'d to a log file read back through a `Read log` button. Added `<uses-permission android:name="android.permission.INTERNET"/>` so MPICH ch3:sock can `listen()` on loopback. versionCode=4. On-device timings: FemModel init 37 ms, Solve 18 ms. Second-call guard in place because MPI_Init is one-shot per process
+- Scaffolded Seantinel browser app with Vite + Three.js. `src/plot/` hosts the ISSM → Three.js plot pipeline ported from VESL: `colorbars.js` (verbatim from ISSM), `processmesh.js` (2D), `processdata.js` (node/element classifier), `Node.js` (`patch({Faces, Vertices, FaceVertexCData, FaceColor, EdgeColor})` with per-vertex `interp` and per-element `flat` modes), `plotmodel.js` orchestrator. Mesh is 1-indexed on the ISSM side; Node subtracts 1 before writing the Three.js index buffer. Dev server: `npm run dev` at `http://localhost:5173`.
+- **Live native solve drives the WebView plot inside the APK (v14).** Added `readOutbinBase64()` `@JavascriptInterface` + `parseresults.js` (DataView port of ISSM's `parseresultsfrombuffer.js`, handles type 1/2/3/4 records, unit conversion m/s → m/year, strips trailing `\x00` from field names). Flow: Run test101 → load libs → native Solve → read outbin → parse → swap `md.results.StressbalanceSolution` → re-render. Single tap, one-on-one testable (bundled auto-render disabled when `window.Native` present).
+- Rebuilt test101 model with finer mesh (3015 nvtx / 5797 nelt, up from 340/614). `scripts/dump_test101.py` is parametric: `MESH_AREA=16500` env var controls `triangle(..., maxarea)`. Also sets `md.miscellaneous.name = 'test101'` so the output filename matches what the Android app reads.
+- Removed `Load libs` button from the HUD. Run test101 auto-loads libs; one button for the full native cycle.
