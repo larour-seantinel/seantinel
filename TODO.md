@@ -5,14 +5,9 @@
 - (empty)
 
 ## Next Up
-- Dropdown to pick any field in `StressbalanceSolution` (Vel, Vx, Vy, Pressure, DeviatoricStress{xx,yy,xy}, MassFlux1–6) and re-render with auto-scaled colorbar. All fields already present in the parsed outbin; just needs a `<select>` + re-call `renderVel` with the chosen key.
-- Dropdown to pick test 101–110. Scope decisions needed first:
-  - 102/103/104/107 are 3D (SSA3d, HO, FS, Masstransport3d) — needs 3D rendering in `processmesh.js`/`Node.js` (prisms, not just triangles).
-  - 108/109 are Thermal/Transient — multi-step time dimension; add a step slider.
-  - 109/110 are transient — multiple records per field; need per-step picking too.
-  - APK asset bloat: 10 × (bin + toolkits + mesh json) ≈ 20–50 MB.
-  - Easy subset first: 101, 105, 106 (all 2D, steady). Then 110 (2D transient, needs step UI). Defer 3D tests until 3D plotter is written.
-- Move ISSM solve to a child process so it can rerun without force-stopping the app, and prepare the path to np≥2 (fork+exec `issm.exe` renamed as `lib/arm64-v8a/libissmexe.so`, with `lib*.so`-extract trick for exec permission).
+- Add test 110 (2D transient Masstransport): needs a step slider in the HUD (per-step picking in `parseresults` output) and the existing field dropdown wires to the selected step. Builder shape in `scripts/dump_test.py` is already parametric — add `build_test110` + default area.
+- Add 3D tests (102/103/104/107): requires a `processmesh3d.js` + `Node3D.js` that handles prisms (6-vertex elements, 3 quad side faces + 2 triangle caps). Current `processmesh.js` only handles 2D triangles. Big-ish — defer until 2D transient works.
+- Move ISSM solve to a child process so it can rerun without force-stopping the app, and prepare the path to np≥2 (fork+exec `issm.exe` renamed as `lib/arm64-v8a/libissmexe.so`, with `lib*.so`-extract trick for exec permission). Also unlocks picking a different test without relaunch.
 - Begin ISSM-WASM path (browser build of Seantinel): extract `issm-binaries.js` from VESL or compile via Emscripten. Current native-stack path is Android-only.
 - Automatic APK install from Termux is BLOCKED on Samsung — pairing listener refuses same-device connections even with adb 37.0.0p1 and local-network permission granted (traced 2026-10-26, see LEARNINGS). Use (a) copy APK into `~/storage/shared/Download/` for Files app tap-install, or (b) pair from an external device once and copy keys.
 - Decide longer-term fix for Termux netCDF4 missing `libhdf5` NEEDED: `pkg install patchelf` + patch wrapper, or lazy-import in `loadmodel.py` so tests that don't need netCDF4 skip it.
@@ -65,3 +60,7 @@
 - **Live native solve drives the WebView plot inside the APK (v14).** Added `readOutbinBase64()` `@JavascriptInterface` + `parseresults.js` (DataView port of ISSM's `parseresultsfrombuffer.js`, handles type 1/2/3/4 records, unit conversion m/s → m/year, strips trailing `\x00` from field names). Flow: Run test101 → load libs → native Solve → read outbin → parse → swap `md.results.StressbalanceSolution` → re-render. Single tap, one-on-one testable (bundled auto-render disabled when `window.Native` present).
 - Rebuilt test101 model with finer mesh (3015 nvtx / 5797 nelt, up from 340/614). `scripts/dump_test101.py` is parametric: `MESH_AREA=16500` env var controls `triangle(..., maxarea)`. Also sets `md.miscellaneous.name = 'test101'` so the output filename matches what the Android app reads.
 - Removed `Load libs` button from the HUD. Run test101 auto-loads libs; one button for the full native cycle.
+- **Field dropdown** — rebuilt dynamically from the parsed outbin after each solve. Filters to Float64Array keys whose length matches `md.mesh.numberofvertices` or `numberofelements`; default comes from `TESTS[id].defaultField`. Instant swap: pick a field, re-render.
+- **Test selector (101/105/106)** — all three 2D steady tests packaged in the APK. 101 = Stressbalance SSA minimal (Vel/Vx/Vy/Pressure). 105 = Masstransport 2D DG (Thickness, nvtx=44/nelt=68, matches real NightlyRun test105). 106 = Stressbalance SSA with full outputs (Vel/Vx/Vy/Pressure + DeviatoricStress{xx,yy,xy} + MassFlux1–6, nvtx=340/nelt=614). Test dropdown locks after Run because `MPI_Init` is one-shot per process.
+- `scripts/dump_test.py` replaces `dump_test101.py`. Parametric via `TEST=101|105|106` + optional `MESH_AREA` override. Writes JSON for both the Vite/public path and the APK asset path, and copies `.bin`/`.toolkits` from the fresh execution dir into `android-spike/assets/test{N}/` in one shot.
+- JNI generalized: `nativeRunTest(dir, testName, solution)` replaces `nativeRunTest101(dir)`. Java mirror methods accept `testName`. APK v16 shipped (22.2 MB).

@@ -62,7 +62,7 @@ public class NativeBridge {
     }
 
     public static native String nativeHello();
-    public static native String nativeRunTest101(String dir);
+    public static native String nativeRunTest(String dir, String testName, String solution);
 
     @JavascriptInterface
     public String helloFromNative() {
@@ -75,20 +75,20 @@ public class NativeBridge {
     }
 
     @JavascriptInterface
-    public String runTest101() {
-        if (!loadedOk) return "lib load failed, cannot run test101";
+    public String runTest(String testName, String solution) {
+        if (!loadedOk) return "lib load failed, cannot run " + testName;
         try {
-            File dir = new File(ctx.getFilesDir(), "test101");
+            File dir = new File(ctx.getFilesDir(), testName);
             if (!dir.exists() && !dir.mkdirs()) {
-                return "runTest101 error: mkdirs failed for " + dir.getAbsolutePath();
+                return "runTest error: mkdirs failed for " + dir.getAbsolutePath();
             }
-            copyAsset("test101/test101.bin", new File(dir, "test101.bin"));
-            copyAsset("test101/test101.toolkits", new File(dir, "test101.toolkits"));
-            return nativeRunTest101(dir.getAbsolutePath());
+            copyAsset(testName + "/" + testName + ".bin", new File(dir, testName + ".bin"));
+            copyAsset(testName + "/" + testName + ".toolkits", new File(dir, testName + ".toolkits"));
+            return nativeRunTest(dir.getAbsolutePath(), testName, solution);
         } catch (Throwable t) {
             StringWriter sw = new StringWriter();
             t.printStackTrace(new PrintWriter(sw));
-            return "runTest101 error:\n" + sw.toString();
+            return "runTest error:\n" + sw.toString();
         }
     }
 
@@ -109,9 +109,9 @@ public class NativeBridge {
     }
 
     @JavascriptInterface
-    public String readOutbinBase64() {
+    public String readOutbinBase64(String testName) {
         try {
-            File outbin = new File(new File(ctx.getFilesDir(), "test101"), "test101.outbin");
+            File outbin = new File(new File(ctx.getFilesDir(), testName), testName + ".outbin");
             if (!outbin.exists()) return "ERROR: no outbin at " + outbin.getAbsolutePath();
             byte[] buf = new byte[(int) outbin.length()];
             try (InputStream in = new FileInputStream(outbin)) {
@@ -129,9 +129,9 @@ public class NativeBridge {
     }
 
     @JavascriptInterface
-    public String readLog() {
+    public String readLog(String testName) {
         try {
-            File log = new File(new File(ctx.getFilesDir(), "test101"), "test101.stdlog");
+            File log = new File(new File(ctx.getFilesDir(), testName), testName + ".stdlog");
             if (!log.exists()) return "(no log at " + log.getAbsolutePath() + ")";
             byte[] buf = new byte[(int) log.length()];
             try (InputStream in = new java.io.FileInputStream(log)) {

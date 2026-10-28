@@ -31,23 +31,32 @@ static long tv_ms(const timeval& a, const timeval& b) {
     return (b.tv_sec - a.tv_sec) * 1000L + (b.tv_usec - a.tv_usec) / 1000L;
 }
 
-static bool test101_done = false;
+static bool solve_done = false;
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_seantinel_spike_NativeBridge_nativeRunTest101(JNIEnv* env, jclass clazz, jstring jDir) {
-    if (test101_done) {
+Java_com_seantinel_spike_NativeBridge_nativeRunTest(JNIEnv* env, jclass clazz,
+                                                   jstring jDir, jstring jTestName, jstring jSolution) {
+    if (solve_done) {
         return env->NewStringUTF(
-            "test101 already ran in this process.\n"
+            "A solve already ran in this process.\n"
             "MPI_Init can only be called once per process lifetime (MPI standard).\n"
             "Force-stop the app and relaunch to run again.");
     }
-    test101_done = true;
+    solve_done = true;
 
     const char* dir_c = env->GetStringUTFChars(jDir, nullptr);
     std::string dir(dir_c);
     env->ReleaseStringUTFChars(jDir, dir_c);
 
-    std::string logPath = dir + "/test101.stdlog";
+    const char* test_c = env->GetStringUTFChars(jTestName, nullptr);
+    std::string testName(test_c);
+    env->ReleaseStringUTFChars(jTestName, test_c);
+
+    const char* sol_c = env->GetStringUTFChars(jSolution, nullptr);
+    std::string solution(sol_c);
+    env->ReleaseStringUTFChars(jSolution, sol_c);
+
+    std::string logPath = dir + "/" + testName + ".stdlog";
     int logfd = open(logPath.c_str(), O_CREAT | O_WRONLY | O_TRUNC, 0644);
     int saved_stdout = dup(1);
     int saved_stderr = dup(2);
@@ -58,10 +67,14 @@ Java_com_seantinel_spike_NativeBridge_nativeRunTest101(JNIEnv* env, jclass clazz
     }
 
     char arg0[] = "issm";
-    char arg1[] = "StressbalanceSolution";
+    std::string arg1 = solution;
     std::string arg2 = dir;
-    char arg3[] = "test101";
-    char* argv[] = { arg0, arg1, const_cast<char*>(arg2.c_str()), arg3, nullptr };
+    std::string arg3 = testName;
+    char* argv[] = { arg0,
+                     const_cast<char*>(arg1.c_str()),
+                     const_cast<char*>(arg2.c_str()),
+                     const_cast<char*>(arg3.c_str()),
+                     nullptr };
     int argc = 4;
 
     timeval t0, t1, t2, t3, t4;
@@ -108,7 +121,7 @@ Java_com_seantinel_spike_NativeBridge_nativeRunTest101(JNIEnv* env, jclass clazz
     close(saved_stderr);
 
     std::ostringstream out;
-    out << "test101: " << status << "\n";
+    out << status << " · " << testName << " / " << solution << "\n";
     if (status == "OK") {
         out << "EnvInit:  " << envInit_ms << " ms\n"
             << "FemModel: " << fem_ms << " ms\n"

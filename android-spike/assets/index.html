@@ -15,15 +15,29 @@
     #cbar canvas { width: 100%; height: 14px; display: block; border: 1px solid #444; }
     #cbar .labels { display: flex; justify-content: space-between; font-size: 11px; margin-top: 2px; }
   </style>
-  <script type="module" crossorigin src="./assets/index-CHIqAE1v.js"></script>
+  <script type="module" crossorigin src="./assets/index-BYxwJCL5.js"></script>
 </head>
 <body>
   <canvas id="canvas"></canvas>
   <div id="hud">
-    <h1>Seantinel · test101 StressBalance</h1>
+    <h1>Seantinel · ISSM solve</h1>
     <div id="status">loading…</div>
     <div style="margin-top:6px;">
-      <button onclick="window.__hud.runTest101()">Run test101</button>
+      <label>Test:
+        <select id="test-select">
+          <option value="101">test101 — Stressbalance SSA (min)</option>
+          <option value="105">test105 — Masstransport 2D</option>
+          <option value="106">test106 — Stressbalance SSA (full outputs)</option>
+        </select>
+      </label>
+    </div>
+    <div style="margin-top:4px;">
+      <label>Field:
+        <select id="field-select"><option>Vel</option></select>
+      </label>
+    </div>
+    <div style="margin-top:6px;">
+      <button onclick="window.__hud.run()">Run</button>
       <button onclick="window.__hud.readLog()">Read log</button>
     </div>
     <pre id="native-out"></pre>
