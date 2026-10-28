@@ -55,7 +55,6 @@ function flattenJsonResults(md) {
 let scene, camera, renderer, controls, currentGroup = null;
 let modelData = null;
 let currentTestId = null;
-let hasRunNative = false;
 
 function initScene() {
   scene = new THREE.Scene();
@@ -163,7 +162,6 @@ async function loadTestJson(testId) {
 }
 
 async function selectTest(testId) {
-  if (hasRunNative) return; // MPI_Init is one-shot per process
   currentTestId = testId;
   setStatus(`loading test${testId}…`);
   try {
@@ -183,28 +181,21 @@ async function selectTest(testId) {
   }
 }
 
-function hasNative() { return !!(window.Native && typeof window.Native.runTest === 'function'); }
+function hasNative() { return !!(window.Native && typeof window.Native.execRunTest === 'function'); }
 
 function runNativeAndReplot() {
   const out = document.getElementById('native-out');
   const n = window.Native;
-  if (!n || typeof n.runTest !== 'function') {
-    out.textContent = '(no Native.runTest; running in browser)';
+  if (!n || typeof n.execRunTest !== 'function') {
+    out.textContent = '(no Native.execRunTest; running in browser)';
     return;
   }
-  out.textContent = 'loading libs…';
-  let loadMsg;
-  try { loadMsg = n.load(); } catch (e) { out.textContent = 'load error: ' + e; return; }
-  if (loadMsg.includes('FAIL')) { out.textContent = loadMsg; return; }
 
   const testId = currentTestId;
   const sol = TESTS[testId].solution;
-  out.textContent = `calling Native.runTest("test${testId}", "${sol}")…`;
+  out.textContent = `exec libissmexe.so test${testId} ${sol}…`;
   let msg;
-  try { msg = n.runTest('test' + testId, sol); } catch (e) { out.textContent = 'error: ' + e; return; }
-
-  hasRunNative = true;           // MPI_Init happened — lock the test selector
-  testSelect.disabled = true;
+  try { msg = n.execRunTest('test' + testId, sol); } catch (e) { out.textContent = 'error: ' + e; return; }
 
   if (!msg.startsWith('OK')) { out.textContent = msg; return; }
 

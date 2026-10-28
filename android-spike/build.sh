@@ -23,6 +23,9 @@ echo "[1/9] stage ISSM libs"
 # Format: SRC_PATH:DST_NAME  (DST_NAME uses plain .so for versioned libs)
 STAGE=(
     "$ISSM/lib/libISSMCore.so:libISSMCore.so"
+    "$ISSM/lib/libISSMModules.so:libISSMModules.so"
+    "$ISSM/lib/libISSMOverload.so:libISSMOverload.so"
+    "$ISSM/externalpackages/triangle/install/lib/libtriangle.so:libtriangle.so"
     "$PETSC_LIB/libpetsc.so.3.25.4:libpetsc.so"
     "$PETSC_LIB/libscalapack.so.2.2.3:libscalapack.so"
     "$PETSC_LIB/libmpi.so.12.6.0:libmpi.so"
@@ -35,30 +38,45 @@ STAGE=(
     "/data/data/com.termux/files/usr/lib/libc++_shared.so:libc++_shared.so"
     "/data/data/com.termux/files/usr/lib/libz.so.1.3.2:libz.so"
     "/data/data/com.termux/files/usr/lib/libandroid-shmem.so:libandroid-shmem.so"
+    "/data/data/com.termux/files/usr/lib/libandroid-posix-semaphore.so:libandroid-posix-semaphore.so"
+    "/data/data/com.termux/files/usr/lib/libevent_core-2.1.so:libevent_core.so"
+    "/data/data/com.termux/files/usr/lib/libevent_pthreads-2.1.so:libevent_pthreads.so"
+    "$ISSM/bin/issm.exe:libissmexe.so"
 )
 for entry in "${STAGE[@]}"; do
     SRC="${entry%:*}"
     DST="${entry#*:}"
     cp "$SRC" "$LIBDIR/$DST"
 done
+chmod +x $LIBDIR/libissmexe.so
 
 echo "[2/9] patchelf SONAMEs + NEEDEDs to plain .so"
 for lib in $LIBDIR/*.so; do
     patchelf --remove-rpath "$lib"
-    patchelf --set-soname "$(basename $lib)" "$lib"
+    # issm.exe is PIE and has no SONAME; skip set-soname for it (would make the exe loader-only)
+    if [ "$(basename $lib)" != "libissmexe.so" ]; then
+        patchelf --set-soname "$(basename $lib)" "$lib"
+    fi
     patchelf --replace-needed libmpi.so.12 libmpi.so "$lib"
     patchelf --replace-needed libmpicxx.so.12 libmpicxx.so "$lib"
     patchelf --replace-needed libmpifort.so.12 libmpifort.so "$lib"
     patchelf --replace-needed libscalapack.so.2.2 libscalapack.so "$lib"
     patchelf --replace-needed libpetsc.so.3.25 libpetsc.so "$lib"
     patchelf --replace-needed libz.so.1 libz.so "$lib"
+    patchelf --replace-needed libevent_core-2.1.so libevent_core.so "$lib"
+    patchelf --replace-needed libevent_pthreads-2.1.so libevent_pthreads.so "$lib"
 done
 
 echo "[2b/9] patchelf: add libandroid-shmem.so to libpetsc NEEDED"
 patchelf --add-needed libandroid-shmem.so $LIBDIR/libpetsc.so
 
+echo "[2c/9] patchelf: strip OpenMPI leaks from libISSMOverload NEEDED"
+patchelf --remove-needed libopen-rte.so $LIBDIR/libISSMOverload.so || true
+patchelf --remove-needed libopen-pal.so $LIBDIR/libISSMOverload.so || true
+
 echo "[3/9] llvm-strip large libs"
-llvm-strip --strip-unneeded $LIBDIR/libISSMCore.so $LIBDIR/libpetsc.so $LIBDIR/libopenblas.so $LIBDIR/libscalapack.so
+llvm-strip --strip-unneeded $LIBDIR/libISSMCore.so $LIBDIR/libpetsc.so $LIBDIR/libopenblas.so $LIBDIR/libscalapack.so $LIBDIR/libISSMModules.so $LIBDIR/libISSMOverload.so
+llvm-strip --strip-all $LIBDIR/libissmexe.so
 
 echo "[4a/9] build libissmstatics.so (statics issm.exe normally provides)"
 INC="-I/data/data/com.termux/files/usr/include -I$ISSM/externalpackages/mpich/install/include"

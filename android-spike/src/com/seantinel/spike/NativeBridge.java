@@ -93,6 +93,49 @@ public class NativeBridge {
     }
 
     @JavascriptInterface
+    public String execRunTest(String testName, String solution) {
+        try {
+            File dir = new File(ctx.getFilesDir(), testName);
+            if (!dir.exists() && !dir.mkdirs()) {
+                return "FAIL execRunTest: mkdirs failed for " + dir.getAbsolutePath();
+            }
+            copyAsset(testName + "/" + testName + ".bin", new File(dir, testName + ".bin"));
+            copyAsset(testName + "/" + testName + ".toolkits", new File(dir, testName + ".toolkits"));
+
+            String nativeDir = ctx.getApplicationInfo().nativeLibraryDir;
+            File exe = new File(nativeDir, "libissmexe.so");
+            if (!exe.exists()) {
+                return "FAIL execRunTest: " + exe.getAbsolutePath() + " not found";
+            }
+
+            File log = new File(dir, testName + ".stdlog");
+            ProcessBuilder pb = new ProcessBuilder(
+                exe.getAbsolutePath(), solution, dir.getAbsolutePath(), testName);
+            pb.directory(dir);
+            pb.redirectErrorStream(true);
+            pb.redirectOutput(log);
+            pb.environment().put("LD_LIBRARY_PATH", nativeDir);
+
+            long t0 = System.currentTimeMillis();
+            Process p = pb.start();
+            int rc = p.waitFor();
+            long elapsed = System.currentTimeMillis() - t0;
+
+            StringBuilder sb = new StringBuilder();
+            sb.append(rc == 0 ? "OK" : "FAIL").append(" · ")
+              .append(testName).append(" / ").append(solution)
+              .append("\nexit=").append(rc)
+              .append(" · total=").append(elapsed).append(" ms")
+              .append("\nlog: ").append(log.getAbsolutePath());
+            return sb.toString();
+        } catch (Throwable t) {
+            StringWriter sw = new StringWriter();
+            t.printStackTrace(new PrintWriter(sw));
+            return "FAIL execRunTest:\n" + sw.toString();
+        }
+    }
+
+    @JavascriptInterface
     public String getAsset(String assetPath) {
         try {
             AssetManager am = ctx.getAssets();
