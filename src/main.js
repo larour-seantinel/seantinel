@@ -102,36 +102,72 @@ function clearOverlay() {
   overlayMesh = null;
 }
 
-function addOverlayPlane(md) {
+// Build a textured 3D terrain mesh from md.overlay.outer{index,x,y,height}.
+// Vertices are 1-indexed on the ISSM side; subtract 1 before writing the
+// Three.js index buffer. UVs map (x,y) linearly into xlim/ylim so radar.png
+// aligns with the glacier box. Relief is mean-centered + zExag-scaled using
+// the terrain's own mean so cranking the slider amplifies mountains without
+// drifting the whole mesh skyward.
+function addOverlayTerrain(md) {
   clearOverlay();
   const ov = md && md.overlay;
-  if (!ov || !ov.xlim || !ov.ylim || !ov.image) return;
-  const [x0, x1] = ov.xlim;
-  const [y0, y1] = ov.ylim;
-  const w = x1 - x0, h = y1 - y0;
-  // Sit the overlay at mean surface altitude so it reads as the ground plane
-  // under the draped glacier. Fallback to z=0 for pure 2D models.
-  let zMean = 0;
-  if (md.geometry && md.geometry.surface) {
-    const s = md.geometry.surface;
-    let acc = 0;
-    for (let i = 0; i < s.length; i++) acc += s[i];
-    zMean = acc / s.length;
+  if (!ov || !ov.xlim || !ov.ylim || !ov.image
+      || !ov.outerindex || !ov.outerx || !ov.outery || !ov.outerheight) {
+    return;
   }
-  const loader = new THREE.TextureLoader();
-  loader.load(ov.image, (texture) => {
+  const nv = ov.outerx.length;
+  const [xl0, xl1] = ov.xlim;
+  const [yl0, yl1] = ov.ylim;
+  const dx = xl1 - xl0, dy = yl1 - yl0;
+
+  let zMean = 0;
+  for (let i = 0; i < nv; i++) zMean += ov.outerheight[i];
+  zMean /= nv;
+  const zExag = needsZExagUI(md) ? currentZExag : 1;
+
+  const positions = new Float32Array(nv * 3);
+  const uvs = new Float32Array(nv * 2);
+  for (let i = 0; i < nv; i++) {
+    positions[3 * i + 0] = ov.outerx[i];
+    positions[3 * i + 1] = ov.outery[i];
+    positions[3 * i + 2] = (ov.outerheight[i] - zMean) * zExag + zMean;
+    uvs[2 * i + 0] = (ov.outerx[i] - xl0) / dx;
+    uvs[2 * i + 1] = (ov.outery[i] - yl0) / dy;
+  }
+
+  const tris = ov.outerindex;
+  const ne = tris.length;
+  const index = new Uint32Array(ne * 3);
+  for (let j = 0; j < ne; j++) {
+    index[3 * j + 0] = tris[j][0] - 1;
+    index[3 * j + 1] = tris[j][1] - 1;
+    index[3 * j + 2] = tris[j][2] - 1;
+  }
+
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geom.setIndex(new THREE.BufferAttribute(index, 1));
+  geom.computeVertexNormals();
+
+  // Build the mesh synchronously with a neutral material so renderField's
+  // Box3 sees the real terrain extent for camera framing; swap the radar
+  // texture in on load.
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0x7a6a56,
+    side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1,
+  });
+  overlayMesh = new THREE.Mesh(geom, mat);
+  overlayMesh.renderOrder = -1;
+  scene.add(overlayMesh);
+  new THREE.TextureLoader().load(ov.image, (texture) => {
     texture.colorSpace = THREE.SRGBColorSpace;
-    const geom = new THREE.PlaneGeometry(w, h);
-    const mat = new THREE.MeshBasicMaterial({
-      map: texture,
-      transparent: true,
-      opacity: 0.9,
-      depthWrite: false,
-    });
-    overlayMesh = new THREE.Mesh(geom, mat);
-    overlayMesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, zMean);
-    overlayMesh.renderOrder = -1;
-    scene.add(overlayMesh);
+    mat.map = texture;
+    mat.color.setHex(0xffffff);
+    mat.needsUpdate = true;
   }, undefined, (err) => {
     console.warn('overlay texture failed:', ov.image, err);
   });
@@ -170,9 +206,25 @@ function initScene() {
     renderer.setSize(window.innerWidth, window.innerHeight, false);
   });
 
+  const camReadout = document.getElementById('cam-readout');
   (function tick() {
     controls.update();
     renderer.render(scene, camera);
+    if (camReadout) {
+      // Azimuth = compass bearing of the camera as seen from the target
+      //   (0° = north/+Y, 90° = east/+X, clockwise). Elevation = pitch above
+      //   the horizontal plane through the target. Dist = slant distance.
+      const dx = camera.position.x - controls.target.x;
+      const dy = camera.position.y - controls.target.y;
+      const dz = camera.position.z - controls.target.z;
+      const r = Math.hypot(dx, dy);
+      const dist = Math.hypot(r, dz);
+      let az = Math.atan2(dx, dy) * 180 / Math.PI;
+      if (az < 0) az += 360;
+      const el = Math.atan2(dz, r) * 180 / Math.PI;
+      camReadout.textContent =
+        `cam · az=${az.toFixed(1)}° el=${el.toFixed(1)}° dist=${dist.toExponential(2)}`;
+    }
     requestAnimationFrame(tick);
   })();
 }
@@ -264,6 +316,10 @@ function renderField(fieldName) {
     drapeOnSurface: hasDrapableSurface(modelData),
   });
   currentGroup = group;
+  // Rebuild the terrain overlay BEFORE Box3 so camera framing sees the full
+  // scene extent, not just the glacier. zExag stays in sync with the glacier
+  // because both use the same currentZExag. Cheap: 11k vertices on Haig.
+  addOverlayTerrain(modelData);
   const steps = getSteps();
   const stepTag = steps.length > 1
     ? ` · step ${currentStepIdx}/${steps.length - 1}${results.time != null ? ` t=${Number(results.time).toFixed(2)}` : ''}`
@@ -271,24 +327,42 @@ function renderField(fieldName) {
   cbarTitleEl.textContent = `${fieldName}${stepTag}`;
   paintColorbar(colormap, caxis[0], caxis[1]);
 
+  // Center on the glacier so it stays the subject of the frame. For draped
+  // meshes with a terrain overlay, use the FULL scene box (glacier + terrain)
+  // to size the camera distance — otherwise the terrain's exaggerated relief
+  // extends above the camera and we end up staring at mountains edge-on.
   const box = new THREE.Box3().setFromObject(group);
   const center = box.getCenter(new THREE.Vector3());
+  const fullBox = overlayMesh ? box.clone().expandByObject(overlayMesh) : box;
   const size = box.getSize(new THREE.Vector3());
+  const fullSize = fullBox.getSize(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z) || 1;
+  const fullMaxDim = Math.max(fullSize.x, fullSize.y, fullSize.z) || 1;
   // For draped 2D meshes, frame on horizontal extent only — otherwise cranking
   // z-exag inflates size.z and the camera pulls so far back that the horizontal
   // detail vanishes and the terrain reads as flat.
   const frameDim = hasDrapableSurface(modelData)
-    ? (Math.max(size.x, size.y) || 1)
+    ? (Math.max(fullSize.x, fullSize.y) || 1)
     : maxDim;
-  if (needsZExagUI(modelData)) {
+  if (hasDrapableSurface(modelData)) {
+    // Landscape vista defaults, picked from a hand-tuned Haig view:
+    //   azimuth ≈ 178° (nearly due south of target),
+    //   elevation ≈ 30° above horizontal,
+    //   slant distance ≈ 2.7× terrain width.
+    const d = frameDim * 2.7;
+    const camX = center.x + d * 0.030;                              // cos(30°) sin(178°)
+    const camY = center.y - d * 0.866;                              // cos(30°) cos(178°)
+    const camZ = center.z + Math.max(d * 0.500, fullSize.z * 1.2);  // sin(30°), clear peaks
+    camera.position.set(camX, camY, camZ);
+  } else if (needsZExagUI(modelData)) {
     const d = frameDim * 1.6;
-    camera.position.set(center.x + d * 0.6, center.y - d * 0.9, center.z + d * 0.6);
+    const zLift = Math.max(d * 0.6, fullSize.z * 1.2);
+    camera.position.set(center.x + d * 0.6, center.y - d * 0.9, center.z + zLift);
   } else {
     camera.position.set(center.x, center.y, center.z + frameDim * 1.6);
   }
-  camera.near = Math.max(maxDim * 1e-3, 0.1);
-  camera.far = maxDim * 100;
+  camera.near = Math.max(fullMaxDim * 1e-3, 0.1);
+  camera.far = fullMaxDim * 100;
   camera.updateProjectionMatrix();
   camera.lookAt(center);
   controls.target.copy(center);
@@ -323,6 +397,11 @@ async function selectTest(testId) {
   currentStepIdx = Math.max(getSteps().length - 1, 0);
   populateStepSlider();
   populateFieldDropdown();
+  // Pick a sensible default z-exag per model class. 3D ice shelves (test102
+  // etc.) are 1000 km wide × 1 km thick → need ×100 to see any depth. Draped
+  // 2D terrains (Haig) already carry real-world relief, so ×1 is natural.
+  currentZExag = hasDrapableSurface(modelData) ? 1 : 100;
+  if (zexagRange) zexagRange.value = Math.log10(currentZExag);
   if (zexagRow) zexagRow.style.display = needsZExagUI(modelData) ? '' : 'none';
   if (zexagLabel) zexagLabel.textContent = `×${Math.round(currentZExag)}`;
 
@@ -409,6 +488,13 @@ window.__hud = {
     const n = window.Native;
     if (!n || typeof n.execKill !== 'function') return;
     try { document.getElementById('native-out').textContent = n.execKill(); } catch (e) {}
+  },
+  toggleLog() {
+    const out = document.getElementById('native-out');
+    const btn = document.getElementById('log-toggle');
+    const hidden = out.style.display === 'none';
+    out.style.display = hidden ? '' : 'none';
+    if (btn) btn.textContent = hidden ? 'Hide log' : 'Show log';
   }
 };
 
