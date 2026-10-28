@@ -42,21 +42,30 @@ STAGE=(
     "/data/data/com.termux/files/usr/lib/libevent_core-2.1.so:libevent_core.so"
     "/data/data/com.termux/files/usr/lib/libevent_pthreads-2.1.so:libevent_pthreads.so"
     "$ISSM/bin/issm.exe:libissmexe.so"
+    "$ISSM/externalpackages/mpich/install/bin/mpiexec.hydra:libmpiexec.so"
+    "$ISSM/externalpackages/mpich/install/bin/hydra_pmi_proxy:libhydrapmi.so"
 )
 for entry in "${STAGE[@]}"; do
     SRC="${entry%:*}"
     DST="${entry#*:}"
     cp "$SRC" "$LIBDIR/$DST"
 done
-chmod +x $LIBDIR/libissmexe.so
+chmod +x $LIBDIR/libissmexe.so $LIBDIR/libmpiexec.so $LIBDIR/libhydrapmi.so
+
+echo "[1b/9] in-place binary patch: hydra_pmi_proxy -> libhydrapmi.so inside libmpiexec.so"
+# Hydra hardcodes "hydra_pmi_proxy" as the proxy filename and execs dirname(argv[0]) + "/" + that.
+# nativeLibraryDir only accepts lib*.so names, so patch the hardcoded string in place.
+# "hydra_pmi_proxy\0" (16 bytes) -> "libhydrapmi.so\0\0" (16 bytes). Verified single occurrence.
+python3 -c "import sys; p=sys.argv[1]; d=open(p,'rb').read(); n=d.replace(b'hydra_pmi_proxy\0', b'libhydrapmi.so\0\0'); assert n != d, 'hydra_pmi_proxy string not found in libmpiexec.so'; open(p,'wb').write(n)" $LIBDIR/libmpiexec.so
 
 echo "[2/9] patchelf SONAMEs + NEEDEDs to plain .so"
 for lib in $LIBDIR/*.so; do
     patchelf --remove-rpath "$lib"
-    # issm.exe is PIE and has no SONAME; skip set-soname for it (would make the exe loader-only)
-    if [ "$(basename $lib)" != "libissmexe.so" ]; then
-        patchelf --set-soname "$(basename $lib)" "$lib"
-    fi
+    # PIE executables have no SONAME; skip set-soname for them (would make the exe loader-only)
+    case "$(basename $lib)" in
+        libissmexe.so|libmpiexec.so|libhydrapmi.so) ;;
+        *) patchelf --set-soname "$(basename $lib)" "$lib" ;;
+    esac
     patchelf --replace-needed libmpi.so.12 libmpi.so "$lib"
     patchelf --replace-needed libmpicxx.so.12 libmpicxx.so "$lib"
     patchelf --replace-needed libmpifort.so.12 libmpifort.so "$lib"
@@ -76,7 +85,7 @@ patchelf --remove-needed libopen-pal.so $LIBDIR/libISSMOverload.so || true
 
 echo "[3/9] llvm-strip large libs"
 llvm-strip --strip-unneeded $LIBDIR/libISSMCore.so $LIBDIR/libpetsc.so $LIBDIR/libopenblas.so $LIBDIR/libscalapack.so $LIBDIR/libISSMModules.so $LIBDIR/libISSMOverload.so
-llvm-strip --strip-all $LIBDIR/libissmexe.so
+llvm-strip --strip-all $LIBDIR/libissmexe.so $LIBDIR/libmpiexec.so $LIBDIR/libhydrapmi.so
 
 echo "[4a/9] build libissmstatics.so (statics issm.exe normally provides)"
 INC="-I/data/data/com.termux/files/usr/include -I$ISSM/externalpackages/mpich/install/include"

@@ -15,7 +15,7 @@
     #cbar canvas { width: 100%; height: 14px; display: block; border: 1px solid #444; }
     #cbar .labels { display: flex; justify-content: space-between; font-size: 11px; margin-top: 2px; }
   </style>
-  <script type="module" crossorigin src="./assets/index-Ly10eAbo.js"></script>
+  <script type="module" crossorigin src="./assets/index--apFAwn-.js"></script>
 </head>
 <body>
   <canvas id="canvas"></canvas>
@@ -36,8 +36,18 @@
         <select id="field-select"><option>Vel</option></select>
       </label>
     </div>
+    <div style="margin-top:4px;">
+      <label>np:
+        <select id="np-select">
+          <option value="1" selected>1</option>
+          <option value="2">2</option>
+          <option value="4">4</option>
+        </select>
+      </label>
+    </div>
     <div style="margin-top:6px;">
       <button onclick="window.__hud.run()">Run</button>
+      <button onclick="window.__hud.kill()">Kill</button>
       <button onclick="window.__hud.readLog()">Read log</button>
     </div>
     <pre id="native-out"></pre>

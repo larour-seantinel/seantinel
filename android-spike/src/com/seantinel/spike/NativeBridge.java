@@ -2,6 +2,7 @@ package com.seantinel.spike;
 
 import android.content.Context;
 import android.content.res.AssetManager;
+import android.system.Os;
 import android.util.Base64;
 import android.webkit.JavascriptInterface;
 
@@ -13,11 +14,17 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.util.ArrayList;
+import java.util.List;
 
 public class NativeBridge {
     private final Context ctx;
     private String loadStatus = null;
     private boolean loadedOk = false;
+    private volatile Thread runThread = null;
+    private volatile String runResult = null;
+    private volatile boolean runRunning = false;
+    private volatile Process runProcess = null;
 
     public NativeBridge(Context ctx) {
         this.ctx = ctx;
@@ -93,46 +100,99 @@ public class NativeBridge {
     }
 
     @JavascriptInterface
-    public String execRunTest(String testName, String solution) {
-        try {
-            File dir = new File(ctx.getFilesDir(), testName);
-            if (!dir.exists() && !dir.mkdirs()) {
-                return "FAIL execRunTest: mkdirs failed for " + dir.getAbsolutePath();
+    public String execRunTest(final String testName, final String solution, final int np) {
+        if (runRunning) return "FAIL already running (call execKill or wait)";
+        runResult = null;
+        runRunning = true;
+        runThread = new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    runResult = doExec(testName, solution, Math.max(np, 1));
+                } catch (Throwable t) {
+                    StringWriter sw = new StringWriter();
+                    t.printStackTrace(new PrintWriter(sw));
+                    runResult = "FAIL execRunTest:\n" + sw.toString();
+                } finally {
+                    runProcess = null;
+                    runRunning = false;
+                }
             }
-            copyAsset(testName + "/" + testName + ".bin", new File(dir, testName + ".bin"));
-            copyAsset(testName + "/" + testName + ".toolkits", new File(dir, testName + ".toolkits"));
+        }, "issm-exec");
+        runThread.start();
+        return "OK started · " + testName + " / " + solution + " · np=" + np;
+    }
 
-            String nativeDir = ctx.getApplicationInfo().nativeLibraryDir;
-            File exe = new File(nativeDir, "libissmexe.so");
-            if (!exe.exists()) {
-                return "FAIL execRunTest: " + exe.getAbsolutePath() + " not found";
-            }
+    @JavascriptInterface
+    public boolean execRunning() { return runRunning; }
 
-            File log = new File(dir, testName + ".stdlog");
-            ProcessBuilder pb = new ProcessBuilder(
-                exe.getAbsolutePath(), solution, dir.getAbsolutePath(), testName);
-            pb.directory(dir);
-            pb.redirectErrorStream(true);
-            pb.redirectOutput(log);
-            pb.environment().put("LD_LIBRARY_PATH", nativeDir);
+    @JavascriptInterface
+    public String execResult() { return runResult != null ? runResult : ""; }
 
-            long t0 = System.currentTimeMillis();
-            Process p = pb.start();
-            int rc = p.waitFor();
-            long elapsed = System.currentTimeMillis() - t0;
+    @JavascriptInterface
+    public String execKill() {
+        Process p = runProcess;
+        if (p == null) return "no process";
+        p.destroyForcibly();
+        return "SIGKILL sent";
+    }
 
-            StringBuilder sb = new StringBuilder();
-            sb.append(rc == 0 ? "OK" : "FAIL").append(" · ")
-              .append(testName).append(" / ").append(solution)
-              .append("\nexit=").append(rc)
-              .append(" · total=").append(elapsed).append(" ms")
-              .append("\nlog: ").append(log.getAbsolutePath());
-            return sb.toString();
-        } catch (Throwable t) {
-            StringWriter sw = new StringWriter();
-            t.printStackTrace(new PrintWriter(sw));
-            return "FAIL execRunTest:\n" + sw.toString();
+    private String doExec(String testName, String solution, int np) throws Exception {
+        File dir = new File(ctx.getFilesDir(), testName);
+        if (!dir.exists() && !dir.mkdirs()) {
+            return "FAIL execRunTest: mkdirs failed for " + dir.getAbsolutePath();
         }
+        copyAsset(testName + "/" + testName + ".bin", new File(dir, testName + ".bin"));
+        copyAsset(testName + "/" + testName + ".toolkits", new File(dir, testName + ".toolkits"));
+
+        String nativeDir = ctx.getApplicationInfo().nativeLibraryDir;
+        File exe = new File(nativeDir, "libissmexe.so");
+        if (!exe.exists()) {
+            return "FAIL execRunTest: " + exe.getAbsolutePath() + " not found";
+        }
+
+        if (np > 1) {
+            File mpiexec = new File(nativeDir, "libmpiexec.so");
+            File proxy = new File(nativeDir, "libhydrapmi.so");
+            if (!mpiexec.exists() || !proxy.exists()) {
+                return "FAIL execRunTest: libmpiexec.so / libhydrapmi.so missing";
+            }
+        }
+
+        List<String> cmd = new ArrayList<>();
+        if (np > 1) {
+            // libmpiexec.so is patched so hydra looks for dirname(argv[0])/libhydrapmi.so
+            // (both live in nativeDir), so no HYDRA_* env or symlinks are needed.
+            cmd.add(new File(nativeDir, "libmpiexec.so").getAbsolutePath());
+            cmd.add("-n");
+            cmd.add(Integer.toString(np));
+            cmd.add("-launcher");
+            cmd.add("fork");
+        }
+        cmd.add(exe.getAbsolutePath());
+        cmd.add(solution);
+        cmd.add(dir.getAbsolutePath());
+        cmd.add(testName);
+
+        File log = new File(dir, testName + ".stdlog");
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.directory(dir);
+        pb.redirectErrorStream(true);
+        pb.redirectOutput(log);
+        pb.environment().put("LD_LIBRARY_PATH", nativeDir);
+
+        long t0 = System.currentTimeMillis();
+        runProcess = pb.start();
+        int rc = runProcess.waitFor();
+        long elapsed = System.currentTimeMillis() - t0;
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(rc == 0 ? "OK" : "FAIL").append(" · ")
+          .append(testName).append(" / ").append(solution)
+          .append(" · np=").append(np)
+          .append("\nexit=").append(rc)
+          .append(" · total=").append(elapsed).append(" ms")
+          .append("\nlog: ").append(log.getAbsolutePath());
+        return sb.toString();
     }
 
     @JavascriptInterface

@@ -12,6 +12,7 @@ const cminEl = document.getElementById('cmin');
 const cmaxEl = document.getElementById('cmax');
 const testSelect = document.getElementById('test-select');
 const fieldSelect = document.getElementById('field-select');
+const npSelect = document.getElementById('np-select');
 
 // Solution name and preferred default field per test.
 const TESTS = {
@@ -183,7 +184,9 @@ async function selectTest(testId) {
 
 function hasNative() { return !!(window.Native && typeof window.Native.execRunTest === 'function'); }
 
-function runNativeAndReplot() {
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+async function runNativeAndReplot() {
   const out = document.getElementById('native-out');
   const n = window.Native;
   if (!n || typeof n.execRunTest !== 'function') {
@@ -193,14 +196,34 @@ function runNativeAndReplot() {
 
   const testId = currentTestId;
   const sol = TESTS[testId].solution;
-  out.textContent = `exec libissmexe.so test${testId} ${sol}…`;
-  let msg;
-  try { msg = n.execRunTest('test' + testId, sol); } catch (e) { out.textContent = 'error: ' + e; return; }
+  const np = npSelect ? parseInt(npSelect.value, 10) || 1 : 1;
+  const testName = 'test' + testId;
+  out.textContent = `exec libissmexe.so ${testName} ${sol} np=${np}…`;
 
-  if (!msg.startsWith('OK')) { out.textContent = msg; return; }
+  let started;
+  try { started = n.execRunTest(testName, sol, np); } catch (e) { out.textContent = 'error: ' + e; return; }
+  if (!started.startsWith('OK')) { out.textContent = started; return; }
+
+  const t0 = Date.now();
+  while (n.execRunning()) {
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+    let tail = '';
+    try { tail = n.readLog(testName); } catch (e) {}
+    tail = tail.split('\n').slice(-12).join('\n');
+    out.textContent = `running… ${elapsed}s\n${started}\n\n--- log tail ---\n${tail}`;
+    await sleep(500);
+  }
+
+  const msg = n.execResult();
+  if (!msg.startsWith('OK')) {
+    let tail = '';
+    try { tail = n.readLog(testName); } catch (e) {}
+    out.textContent = `${msg}\n\n--- log tail ---\n${tail.split('\n').slice(-30).join('\n')}`;
+    return;
+  }
 
   let b64;
-  try { b64 = n.readOutbinBase64('test' + testId); } catch (e) { out.textContent = msg + '\n\nreadOutbin error: ' + e; return; }
+  try { b64 = n.readOutbinBase64(testName); } catch (e) { out.textContent = msg + '\n\nreadOutbin error: ' + e; return; }
   if (b64.startsWith('ERROR')) { out.textContent = msg + '\n\n' + b64; return; }
 
   let steps;
@@ -213,7 +236,6 @@ function runNativeAndReplot() {
   }).join('\n');
   const diag = `${msg}\n\noutbin b64 len: ${b64.length}\nparsed ${steps.length} step(s):\n${summary}`;
 
-  // Prefer the step containing the test's default field.
   const prefer = TESTS[testId].defaultField;
   const chosen = steps.find(s => s[prefer]) || steps[0];
   modelData.results = { [sol]: chosen };
@@ -224,12 +246,17 @@ function runNativeAndReplot() {
 }
 
 window.__hud = {
-  run() { runNativeAndReplot(); },
+  run() { runNativeAndReplot().catch(e => { document.getElementById('native-out').textContent = 'run error: ' + e; }); },
   readLog() {
     const out = document.getElementById('native-out');
     const n = window.Native;
     if (!n || typeof n.readLog !== 'function') { out.textContent = '(no Native.readLog; running in browser)'; return; }
     try { out.textContent = n.readLog('test' + currentTestId); } catch (e) { out.textContent = 'error: ' + e; }
+  },
+  kill() {
+    const n = window.Native;
+    if (!n || typeof n.execKill !== 'function') return;
+    try { document.getElementById('native-out').textContent = n.execKill(); } catch (e) {}
   }
 };
 
