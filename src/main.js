@@ -13,12 +13,16 @@ const cmaxEl = document.getElementById('cmax');
 const testSelect = document.getElementById('test-select');
 const fieldSelect = document.getElementById('field-select');
 const npSelect = document.getElementById('np-select');
+const stepRange = document.getElementById('step-range');
+const stepLabel = document.getElementById('step-label');
+const stepRow = document.getElementById('step-row');
 
 // Solution name and preferred default field per test.
 const TESTS = {
   '101': { solution: 'StressbalanceSolution', defaultField: 'Vel' },
   '105': { solution: 'MasstransportSolution', defaultField: 'Thickness' },
   '106': { solution: 'StressbalanceSolution', defaultField: 'Vel' },
+  '110': { solution: 'TransientSolution',     defaultField: 'Vel' },
 };
 
 function setStatus(msg) { statusEl.textContent = msg; }
@@ -45,17 +49,40 @@ function flattenJsonResults(md) {
     for (let i = 0; i < a.length; i++) out[i] = Array.isArray(a[i]) ? a[i][0] : a[i];
     return out;
   };
+  const flattenStep = (step) => {
+    for (const k of Object.keys(step)) {
+      if (Array.isArray(step[k])) step[k] = flatten1(step[k]);
+    }
+  };
   for (const solName of Object.keys(md.results || {})) {
     const sol = md.results[solName];
-    for (const k of Object.keys(sol)) {
-      if (Array.isArray(sol[k])) sol[k] = flatten1(sol[k]);
-    }
+    if (Array.isArray(sol)) sol.forEach(flattenStep);
+    else flattenStep(sol);
   }
 }
 
 let scene, camera, renderer, controls, currentGroup = null;
 let modelData = null;
 let currentTestId = null;
+let currentStepIdx = 0;
+let frozenCaxis = null;
+
+function computeFrozenCaxis(fieldName) {
+  const steps = getSteps();
+  let lo = Infinity, hi = -Infinity;
+  for (const s of steps) {
+    const v = s && s[fieldName];
+    if (!v || typeof v.length !== 'number') continue;
+    for (let i = 0; i < v.length; i++) {
+      const x = v[i];
+      if (x < lo) lo = x;
+      if (x > hi) hi = x;
+    }
+  }
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
+  if (lo === hi) { lo -= 0.5; hi += 0.5; }
+  return [lo, hi];
+}
 
 function initScene() {
   scene = new THREE.Scene();
@@ -80,9 +107,37 @@ function initScene() {
   })();
 }
 
-function currentResults() {
+function getSteps() {
   const sol = TESTS[currentTestId].solution;
-  return (modelData.results || {})[sol] || null;
+  const raw = (modelData.results || {})[sol];
+  if (!raw) return [];
+  return Array.isArray(raw) ? raw : [raw];
+}
+
+function currentResults() {
+  const steps = getSteps();
+  if (steps.length === 0) return null;
+  return steps[Math.min(currentStepIdx, steps.length - 1)];
+}
+
+function populateStepSlider() {
+  const n = getSteps().length;
+  if (!stepRange) return;
+  const maxIdx = Math.max(n - 1, 0);
+  stepRange.max = maxIdx;
+  if (currentStepIdx > maxIdx) currentStepIdx = maxIdx;
+  stepRange.value = currentStepIdx;
+  stepRange.disabled = n <= 1;
+  if (stepRow) stepRow.style.display = n > 1 ? '' : 'none';
+  updateStepLabel();
+}
+
+function updateStepLabel() {
+  if (!stepLabel) return;
+  const steps = getSteps();
+  const s = steps[currentStepIdx];
+  const t = s && s.time != null ? ` · t=${Number(s.time).toFixed(2)}` : '';
+  stepLabel.textContent = `${currentStepIdx}/${Math.max(steps.length - 1, 0)}${t}`;
 }
 
 function listFields(results) {
@@ -113,6 +168,7 @@ function populateFieldDropdown() {
   const preferred = TESTS[currentTestId].defaultField;
   fieldSelect.value = fields.includes(preferred) ? preferred : fields[0];
   fieldSelect.disabled = false;
+  frozenCaxis = computeFrozenCaxis(fieldSelect.value);
 }
 
 function renderField(fieldName) {
@@ -131,10 +187,15 @@ function renderField(fieldName) {
   const colormap = 'jet';
   const { group, caxis } = plotmodel(scene, modelData, results[fieldName], {
     colormap,
+    caxis: frozenCaxis || undefined,
     edgecolor: [1, 1, 1, 0.2],
   });
   currentGroup = group;
-  cbarTitleEl.textContent = fieldName;
+  const steps = getSteps();
+  const stepTag = steps.length > 1
+    ? ` · step ${currentStepIdx}/${steps.length - 1}${results.time != null ? ` t=${Number(results.time).toFixed(2)}` : ''}`
+    : '';
+  cbarTitleEl.textContent = `${fieldName}${stepTag}`;
   paintColorbar(colormap, caxis[0], caxis[1]);
 
   const box = new THREE.Box3().setFromObject(group);
@@ -146,7 +207,7 @@ function renderField(fieldName) {
   controls.target.copy(center);
   controls.update();
 
-  setStatus(`test${currentTestId} · nvtx=${modelData.mesh.numberofvertices}, nelt=${modelData.mesh.numberofelements} · ${fieldName} ∈ [${caxis[0].toExponential(2)}, ${caxis[1].toExponential(2)}]`);
+  setStatus(`test${currentTestId} · nvtx=${modelData.mesh.numberofvertices}, nelt=${modelData.mesh.numberofelements}${stepTag} · ${fieldName} ∈ [${caxis[0].toExponential(2)}, ${caxis[1].toExponential(2)}]`);
 }
 
 async function loadTestJson(testId) {
@@ -172,6 +233,8 @@ async function selectTest(testId) {
     return;
   }
   flattenJsonResults(modelData);
+  currentStepIdx = Math.max(getSteps().length - 1, 0);
+  populateStepSlider();
   populateFieldDropdown();
 
   if (hasNative()) {
@@ -236,9 +299,9 @@ async function runNativeAndReplot() {
   }).join('\n');
   const diag = `${msg}\n\noutbin b64 len: ${b64.length}\nparsed ${steps.length} step(s):\n${summary}`;
 
-  const prefer = TESTS[testId].defaultField;
-  const chosen = steps.find(s => s[prefer]) || steps[0];
-  modelData.results = { [sol]: chosen };
+  modelData.results = { [sol]: steps };
+  currentStepIdx = steps.length - 1;
+  populateStepSlider();
   populateFieldDropdown();
 
   try { renderField(fieldSelect.value); } catch (e) { out.textContent = diag + '\n\nrender: ' + e; return; }
@@ -263,7 +326,17 @@ window.__hud = {
 async function main() {
   initScene();
   testSelect.addEventListener('change', () => selectTest(testSelect.value));
-  fieldSelect.addEventListener('change', () => renderField(fieldSelect.value));
+  fieldSelect.addEventListener('change', () => {
+    frozenCaxis = computeFrozenCaxis(fieldSelect.value);
+    renderField(fieldSelect.value);
+  });
+  if (stepRange) {
+    stepRange.addEventListener('input', () => {
+      currentStepIdx = parseInt(stepRange.value, 10) || 0;
+      updateStepLabel();
+      if (fieldSelect.value && !fieldSelect.disabled) renderField(fieldSelect.value);
+    });
+  }
   await selectTest(testSelect.value);
 }
 

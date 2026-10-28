@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Build an ISSM test (101 / 105 / 106) and dump mesh + solution to JSON + .bin/.toolkits.
+"""Build an ISSM test (101 / 105 / 106 / 110) and dump mesh + solution to JSON + .bin/.toolkits.
 
-Supported tests (all 2D steady on Square.exp):
+Supported tests (all 2D on Square.exp):
   TEST=101  Stressbalance SSA (minimal outputs: Vel/Vx/Vy/Pressure)   -- Seantinel variant
   TEST=105  Masstransport 2D DG (Thickness)                            -- real ISSM test105
   TEST=106  Stressbalance SSA (full outputs incl. DevStress/MassFlux)  -- real ISSM test106
+  TEST=110  Transient SSA2D (3-step time integration)                  -- real ISSM test110
 
 Outputs:
   public/data/test{N}.json                       -- mesh + bundled results (browser path)
@@ -13,7 +14,7 @@ Outputs:
   android-spike/assets/test{N}/test{N}.toolkits  -- PETSc toolkit options
 
 Env:
-  TEST=101|105|106       -- which test to build (default 101)
+  TEST=101|105|106|110   -- which test to build (default 101)
   MESH_AREA=<float>      -- override triangle(..., maxarea). Defaults are per-test.
 
 Usage: cd ~/issm/test/NightlyRun && TEST=106 python3 ~/Seantinel/scripts/dump_test.py
@@ -118,33 +119,60 @@ def build_test106(area):
     return md, 'Stressbalance'
 
 
+def build_test110(area):
+    from model import model
+    from triangle import triangle
+    from setmask import setmask
+    from parameterize import parameterize
+    from setflowequation import setflowequation
+    from generic import generic
+    from socket import gethostname
+    md = triangle(model(), '../Exp/Square.exp', area)
+    md = setmask(md, 'all', '')
+    md = parameterize(md, '../Par/SquareShelfConstrained.py')
+    md = setflowequation(md, 'SSA', 'all')
+    md.cluster = generic('name', gethostname(), 'np', 1)
+    md.transient.requested_outputs = ['default', 'IceVolume']
+    return md, 'Transient'
+
+
 BUILDERS = {
     '101': (build_test101, 6000.0),
     '105': (build_test105, 150000.0),
     '106': (build_test106, 50000.0),
+    '110': (build_test110, 150000.0),
 }
+
+
+def _collect_one(sol):
+    import numpy as np
+    out = {}
+    for name in dir(sol):
+        if name.startswith('_'): continue
+        v = getattr(sol, name)
+        if callable(v): continue
+        if isinstance(v, np.ndarray):
+            out[name] = v.tolist()
+        elif isinstance(v, (int, float, bool, str)):
+            out[name] = v
+    return out
 
 
 def collect_results(md, solution):
     sol = getattr(md.results, solution + 'Solution', None)
     if sol is None:
         return {}
-    out = {}
-    for name in dir(sol):
-        if name.startswith('_'): continue
-        v = getattr(sol, name)
-        if callable(v): continue
-        try:
-            out[name] = to_list(v)
-        except Exception:
-            pass
-    return out
+    # Transient `solution` wrappers expose __len__ + __getitem__ (list), while
+    # steady `solutionstep` objects are a single result dict. Prefer indexing.
+    if hasattr(sol, '__len__') and hasattr(sol, '__getitem__') and not isinstance(sol, (dict, str, bytes)):
+        return [_collect_one(sol[i]) for i in range(len(sol))]
+    return _collect_one(sol)
 
 
 def main():
     test_id = os.environ.get('TEST', '101')
     if test_id not in BUILDERS:
-        print(f'TEST={test_id} not supported (use 101, 105, 106)', file=sys.stderr)
+        print(f'TEST={test_id} not supported (use 101, 105, 106, 110)', file=sys.stderr)
         sys.exit(1)
     builder, default_area = BUILDERS[test_id]
     area = float(os.environ.get('MESH_AREA', default_area))
