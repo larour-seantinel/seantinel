@@ -19,10 +19,14 @@ const stepRow = document.getElementById('step-row');
 
 // Solution name and preferred default field per test.
 const TESTS = {
-  '101': { solution: 'StressbalanceSolution', defaultField: 'Vel' },
-  '105': { solution: 'MasstransportSolution', defaultField: 'Thickness' },
-  '106': { solution: 'StressbalanceSolution', defaultField: 'Vel' },
-  '110': { solution: 'TransientSolution',     defaultField: 'Vel' },
+  '101': { solution: 'StressbalanceSolution',  defaultField: 'Vel' },
+  '102': { solution: 'StressbalanceSolution',  defaultField: 'Vel' },
+  '103': { solution: 'StressbalanceSolution',  defaultField: 'Vel' },
+  '104': { solution: 'StressbalanceSolution',  defaultField: 'Vel' },
+  '105': { solution: 'MasstransportSolution',  defaultField: 'Thickness' },
+  '106': { solution: 'StressbalanceSolution',  defaultField: 'Vel' },
+  '107': { solution: 'MasstransportSolution',  defaultField: 'Thickness' },
+  '110': { solution: 'TransientSolution',      defaultField: 'Vel' },
 };
 
 function setStatus(msg) { statusEl.textContent = msg; }

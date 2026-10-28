@@ -1,0 +1,21 @@
+%Toolkits options file: /data/data/com.termux/files/home/issm/execution/test103-10-28-2026-10-08-00-7556/test103.toolkits written from Python toolkits array
+
++DefaultAnalysis
+-toolkit petsc
+-mat_type mpiaij
+-ksp_type preonly
+-pc_type lu
+-pc_factor_mat_solver_type mumps
+-mat_mumps_icntl_14 120
+-mat_mumps_icntl_28 2
+-mat_mumps_icntl_29 2
+
++RecoveryAnalysis
+-toolkit petsc
+-mat_type mpiaij
+-ksp_type preonly
+-pc_type lu
+-pc_factor_mat_solver_type mumps
+-mat_mumps_icntl_14 120
+-mat_mumps_icntl_28 2
+-mat_mumps_icntl_29 2

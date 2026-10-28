@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Build an ISSM test (101 / 105 / 106 / 110) and dump mesh + solution to JSON + .bin/.toolkits.
+"""Build an ISSM test (101/102/103/104/105/106/107/110) and dump mesh + solution to JSON + .bin/.toolkits.
 
-Supported tests (all 2D on Square.exp):
-  TEST=101  Stressbalance SSA (minimal outputs: Vel/Vx/Vy/Pressure)   -- Seantinel variant
-  TEST=105  Masstransport 2D DG (Thickness)                            -- real ISSM test105
-  TEST=106  Stressbalance SSA (full outputs incl. DevStress/MassFlux)  -- real ISSM test106
-  TEST=110  Transient SSA2D (3-step time integration)                  -- real ISSM test110
+Supported tests:
+  TEST=101  Stressbalance SSA (minimal outputs: Vel/Vx/Vy/Pressure)   -- 2D, Seantinel variant
+  TEST=102  Stressbalance SSA extruded 3 layers (6-vertex prisms)      -- 3D, real ISSM test102
+  TEST=103  Stressbalance HO (higher-order 3D with StressTensor)       -- 3D, real ISSM test103
+  TEST=104  Stressbalance FS (full-Stokes 3D)                          -- 3D, real ISSM test104
+  TEST=105  Masstransport 2D DG (Thickness)                            -- 2D, real ISSM test105
+  TEST=106  Stressbalance SSA (full outputs incl. DevStress/MassFlux)  -- 2D, real ISSM test106
+  TEST=107  Masstransport 3D (5 layers, Thickness)                     -- 3D, real ISSM test107
+  TEST=110  Transient SSA2D (3-step time integration)                  -- 2D, real ISSM test110
 
 Outputs:
   public/data/test{N}.json                       -- mesh + bundled results (browser path)
@@ -69,6 +73,78 @@ def build_test101(area):
     md.cluster = generic('name', gethostname(), 'np', 1)
     md.stressbalance.requested_outputs = ['default']
     return md, 'Stressbalance'
+
+
+def build_test102(area):
+    from model import model
+    from triangle import triangle
+    from setmask import setmask
+    from parameterize import parameterize
+    from setflowequation import setflowequation
+    from generic import generic
+    from socket import gethostname
+    md = triangle(model(), '../Exp/Square.exp', area)
+    md = setmask(md, 'all', '')
+    md = parameterize(md, '../Par/SquareShelfConstrained.py')
+    md.extrude(3, 2.)
+    md = setflowequation(md, 'SSA', 'all')
+    md.cluster = generic('name', gethostname(), 'np', 1)
+    return md, 'Stressbalance'
+
+
+def build_test103(area):
+    from model import model
+    from triangle import triangle
+    from setmask import setmask
+    from parameterize import parameterize
+    from setflowequation import setflowequation
+    from generic import generic
+    from socket import gethostname
+    md = triangle(model(), '../Exp/Square.exp', area)
+    md = setmask(md, 'all', '')
+    md = parameterize(md, '../Par/SquareShelfConstrained.py')
+    md.extrude(3, 2.)
+    md = setflowequation(md, 'HO', 'all')
+    md.cluster = generic('name', gethostname(), 'np', 1)
+    md.stressbalance.requested_outputs = [
+        'default', 'StressTensorxx', 'StressTensoryy', 'StressTensorzz',
+        'StressTensorxy', 'StressTensorxz', 'StressTensoryz',
+    ]
+    return md, 'Stressbalance'
+
+
+def build_test104(area):
+    from model import model
+    from triangle import triangle
+    from setmask import setmask
+    from parameterize import parameterize
+    from setflowequation import setflowequation
+    from generic import generic
+    from socket import gethostname
+    md = triangle(model(), '../Exp/Square.exp', area)
+    md = setmask(md, 'all', '')
+    md = parameterize(md, '../Par/SquareShelfConstrained.py')
+    md.extrude(3, 2.)
+    md = setflowequation(md, 'FS', 'all')
+    md.cluster = generic('name', gethostname(), 'np', 1)
+    return md, 'Stressbalance'
+
+
+def build_test107(area):
+    from model import model
+    from triangle import triangle
+    from setmask import setmask
+    from parameterize import parameterize
+    from setflowequation import setflowequation
+    from generic import generic
+    from socket import gethostname
+    md = triangle(model(), '../Exp/Square.exp', area)
+    md = setmask(md, 'all', '')
+    md = parameterize(md, '../Par/SquareShelfConstrained.py')
+    md = setflowequation(md, 'SSA', 'all')
+    md.extrude(5, 3.)
+    md.cluster = generic('name', gethostname(), 'np', 1)
+    return md, 'Masstransport'
 
 
 def build_test105(area):
@@ -138,8 +214,12 @@ def build_test110(area):
 
 BUILDERS = {
     '101': (build_test101, 6000.0),
+    '102': (build_test102, 50000.0),
+    '103': (build_test103, 180000.0),
+    '104': (build_test104, 180000.0),
     '105': (build_test105, 150000.0),
     '106': (build_test106, 50000.0),
+    '107': (build_test107, 150000.0),
     '110': (build_test110, 150000.0),
 }
 
@@ -172,7 +252,7 @@ def collect_results(md, solution):
 def main():
     test_id = os.environ.get('TEST', '101')
     if test_id not in BUILDERS:
-        print(f'TEST={test_id} not supported (use 101, 105, 106, 110)', file=sys.stderr)
+        print(f'TEST={test_id} not supported (use 101, 102, 103, 104, 105, 106, 107, 110)', file=sys.stderr)
         sys.exit(1)
     builder, default_area = BUILDERS[test_id]
     area = float(os.environ.get('MESH_AREA', default_area))
@@ -191,14 +271,27 @@ def main():
     print(f'[dump] nvtx={nvtx} nelt={nelt} solution={solution}')
 
     sol_key = solution + 'Solution'
+    mesh_out = {
+        'numberofvertices': nvtx,
+        'numberofelements': nelt,
+        'x': to_list(md.mesh.x),
+        'y': to_list(md.mesh.y),
+        'elements': to_list(md.mesh.elements),
+    }
+    # 3D prism mesh carries extra fields; include whichever are present.
+    for extra in ('z', 'numberoflayers', 'elements2d', 'numberofvertices2d',
+                  'numberofelements2d', 'x2d', 'y2d', 'vertexonbase', 'vertexonsurface'):
+        v = getattr(md.mesh, extra, None)
+        if v is None:
+            continue
+        if hasattr(v, 'tolist'):
+            mesh_out[extra] = v.tolist()
+        elif isinstance(v, (list, tuple)):
+            mesh_out[extra] = to_list(v)
+        elif isinstance(v, (int, float, bool)):
+            mesh_out[extra] = v
     out = {
-        'mesh': {
-            'numberofvertices': nvtx,
-            'numberofelements': nelt,
-            'x': to_list(md.mesh.x),
-            'y': to_list(md.mesh.y),
-            'elements': to_list(md.mesh.elements),
-        },
+        'mesh': mesh_out,
         'results': {
             sol_key: collect_results(md, solution),
         },

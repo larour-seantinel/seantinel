@@ -2,11 +2,17 @@
 // Usage: plotmodel(scene, md, data, { colormap, caxis, edgecolor })
 
 import { processmesh } from './processmesh.js';
+import { processmesh3d } from './processmesh3d.js';
 import { processdata } from './processdata.js';
 import { Node } from './Node.js';
 
+function is3dMesh(md) {
+  return (md.mesh.numberoflayers && md.mesh.numberoflayers > 1)
+      || (Array.isArray(md.mesh.elements) && md.mesh.elements[0] && md.mesh.elements[0].length === 6);
+}
+
 export function plotmodel(scene, md, data, opts = {}) {
-  const meshres = processmesh(md);
+  const meshres = is3dMesh(md) ? processmesh3d(md) : processmesh(md);
   const { data: proc, datatype } = processdata(md, data);
 
   let cmin = opts.caxis ? opts.caxis[0] : Infinity;
