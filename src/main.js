@@ -16,6 +16,9 @@ const npSelect = document.getElementById('np-select');
 const stepRange = document.getElementById('step-range');
 const stepLabel = document.getElementById('step-label');
 const stepRow = document.getElementById('step-row');
+const zexagRange = document.getElementById('zexag-range');
+const zexagLabel = document.getElementById('zexag-label');
+const zexagRow = document.getElementById('zexag-row');
 
 // Solution name and preferred default field per test.
 const TESTS = {
@@ -70,6 +73,12 @@ let modelData = null;
 let currentTestId = null;
 let currentStepIdx = 0;
 let frozenCaxis = null;
+let currentZExag = 100;
+
+function is3dMesh(md) {
+  return (md && md.mesh && md.mesh.numberoflayers && md.mesh.numberoflayers > 1)
+      || (md && md.mesh && Array.isArray(md.mesh.elements) && md.mesh.elements[0] && md.mesh.elements[0].length === 6);
+}
 
 function computeFrozenCaxis(fieldName) {
   const steps = getSteps();
@@ -92,7 +101,7 @@ function initScene() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x111111);
   camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 1e8);
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true });
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight, false);
   controls = new OrbitControls(camera, renderer.domElement);
@@ -189,10 +198,12 @@ function renderField(fieldName) {
     });
   }
   const colormap = 'jet';
+  const zExag = is3dMesh(modelData) ? currentZExag : 1;
   const { group, caxis } = plotmodel(scene, modelData, results[fieldName], {
     colormap,
     caxis: frozenCaxis || undefined,
     edgecolor: [1, 1, 1, 0.2],
+    zExaggeration: zExag,
   });
   currentGroup = group;
   const steps = getSteps();
@@ -206,7 +217,15 @@ function renderField(fieldName) {
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z) || 1;
-  camera.position.set(center.x, center.y, center.z + maxDim * 1.6);
+  if (is3dMesh(modelData)) {
+    const d = maxDim * 1.6;
+    camera.position.set(center.x + d * 0.6, center.y - d * 0.9, center.z + d * 0.6);
+  } else {
+    camera.position.set(center.x, center.y, center.z + maxDim * 1.6);
+  }
+  camera.near = Math.max(maxDim * 1e-3, 0.1);
+  camera.far = maxDim * 100;
+  camera.updateProjectionMatrix();
   camera.lookAt(center);
   controls.target.copy(center);
   controls.update();
@@ -240,6 +259,8 @@ async function selectTest(testId) {
   currentStepIdx = Math.max(getSteps().length - 1, 0);
   populateStepSlider();
   populateFieldDropdown();
+  if (zexagRow) zexagRow.style.display = is3dMesh(modelData) ? '' : 'none';
+  if (zexagLabel) zexagLabel.textContent = `×${Math.round(currentZExag)}`;
 
   if (hasNative()) {
     setStatus(`test${testId} · nvtx=${modelData.mesh.numberofvertices}, nelt=${modelData.mesh.numberofelements} · press Run to solve`);
@@ -338,6 +359,13 @@ async function main() {
     stepRange.addEventListener('input', () => {
       currentStepIdx = parseInt(stepRange.value, 10) || 0;
       updateStepLabel();
+      if (fieldSelect.value && !fieldSelect.disabled) renderField(fieldSelect.value);
+    });
+  }
+  if (zexagRange) {
+    zexagRange.addEventListener('input', () => {
+      currentZExag = Math.pow(10, parseFloat(zexagRange.value));
+      zexagLabel.textContent = `×${Math.round(currentZExag)}`;
       if (fieldSelect.value && !fieldSelect.disabled) renderField(fieldSelect.value);
     });
   }

@@ -12,7 +12,9 @@ function is3dMesh(md) {
 }
 
 export function plotmodel(scene, md, data, opts = {}) {
-  const meshres = is3dMesh(md) ? processmesh3d(md) : processmesh(md);
+  const meshres = is3dMesh(md)
+    ? processmesh3d(md, { zExaggeration: opts.zExaggeration })
+    : processmesh(md);
   const { data: proc, datatype } = processdata(md, data);
 
   let cmin = opts.caxis ? opts.caxis[0] : Infinity;

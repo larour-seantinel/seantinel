@@ -12,13 +12,14 @@
 // Returns `{ vertices: Float32Array[nvtx*3], elements: Array<[a,b,c] 1-indexed>, is2d: false }`
 // — the same shape as processmesh.js, so Node.js patch() consumes it directly.
 
-export function processmesh3d(md) {
+export function processmesh3d(md, opts = {}) {
   const nvtx = md.mesh.numberofvertices;
   const nvtx2d = md.mesh.numberofvertices2d;
   const layers = md.mesh.numberoflayers;
   const prismLayers = layers - 1;
   const elements2d = md.mesh.elements2d;
   const nelt2d = elements2d.length;
+  const zExag = opts.zExaggeration ?? 1;
 
   const x = md.mesh.x;
   const y = md.mesh.y;
@@ -27,7 +28,7 @@ export function processmesh3d(md) {
   for (let i = 0; i < nvtx; i++) {
     vertices[3 * i + 0] = x[i];
     vertices[3 * i + 1] = y[i];
-    vertices[3 * i + 2] = z[i];
+    vertices[3 * i + 2] = z[i] * zExag;
   }
 
   const key = (a, b) => (a < b ? `${a}_${b}` : `${b}_${a}`);
