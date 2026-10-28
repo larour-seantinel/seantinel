@@ -113,6 +113,11 @@ patchelf --remove-rpath $LIBDIR/libspike.so
 
 echo "[5/9] aapt2 compile + link (with assets)"
 aapt2 compile --dir res -o $BUILD/compiled.zip
+# Sync WebView bundle from Vite's dist/ so index.html + hashed JS stay fresh.
+# Clean the old hashed JS first — Vite emits a new filename on every build.
+rm -f assets/assets/index-*.js
+cp ../dist/index.html assets/index.html
+cp -r ../dist/assets/* assets/assets/
 cp -r assets/* $BUILD/assets/
 aapt2 link -I $ANDROID_JAR \
     --manifest AndroidManifest.xml \

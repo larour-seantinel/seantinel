@@ -22,14 +22,15 @@ const zexagRow = document.getElementById('zexag-row');
 
 // Solution name and preferred default field per test.
 const TESTS = {
-  '101': { solution: 'StressbalanceSolution',  defaultField: 'Vel' },
-  '102': { solution: 'StressbalanceSolution',  defaultField: 'Vel' },
-  '103': { solution: 'StressbalanceSolution',  defaultField: 'Vel' },
-  '104': { solution: 'StressbalanceSolution',  defaultField: 'Vel' },
-  '105': { solution: 'MasstransportSolution',  defaultField: 'Thickness' },
-  '106': { solution: 'StressbalanceSolution',  defaultField: 'Vel' },
-  '107': { solution: 'MasstransportSolution',  defaultField: 'Thickness' },
-  '110': { solution: 'TransientSolution',      defaultField: 'Vel' },
+  '101':  { solution: 'StressbalanceSolution', defaultField: 'Vel' },
+  '102':  { solution: 'StressbalanceSolution', defaultField: 'Vel' },
+  '103':  { solution: 'StressbalanceSolution', defaultField: 'Vel' },
+  '104':  { solution: 'StressbalanceSolution', defaultField: 'Vel' },
+  '105':  { solution: 'MasstransportSolution', defaultField: 'Thickness' },
+  '106':  { solution: 'StressbalanceSolution', defaultField: 'Vel' },
+  '107':  { solution: 'MasstransportSolution', defaultField: 'Thickness' },
+  '110':  { solution: 'TransientSolution',     defaultField: 'Vel' },
+  'Haig': { solution: 'TransientSolution',     defaultField: 'Vel' },
 };
 
 function setStatus(msg) { statusEl.textContent = msg; }
@@ -69,6 +70,7 @@ function flattenJsonResults(md) {
 }
 
 let scene, camera, renderer, controls, currentGroup = null;
+let overlayMesh = null;
 let modelData = null;
 let currentTestId = null;
 let currentStepIdx = 0;
@@ -78,6 +80,61 @@ let currentZExag = 100;
 function is3dMesh(md) {
   return (md && md.mesh && md.mesh.numberoflayers && md.mesh.numberoflayers > 1)
       || (md && md.mesh && Array.isArray(md.mesh.elements) && md.mesh.elements[0] && md.mesh.elements[0].length === 6);
+}
+
+// 2D meshes with per-vertex surface elevation can be draped like terrain.
+function hasDrapableSurface(md) {
+  if (is3dMesh(md)) return false;
+  return !!(md && md.geometry && md.geometry.surface
+            && md.geometry.surface.length === md.mesh.numberofvertices);
+}
+
+function needsZExagUI(md) { return is3dMesh(md) || hasDrapableSurface(md); }
+
+function clearOverlay() {
+  if (!overlayMesh) return;
+  scene.remove(overlayMesh);
+  if (overlayMesh.geometry) overlayMesh.geometry.dispose();
+  if (overlayMesh.material) {
+    if (overlayMesh.material.map) overlayMesh.material.map.dispose();
+    overlayMesh.material.dispose();
+  }
+  overlayMesh = null;
+}
+
+function addOverlayPlane(md) {
+  clearOverlay();
+  const ov = md && md.overlay;
+  if (!ov || !ov.xlim || !ov.ylim || !ov.image) return;
+  const [x0, x1] = ov.xlim;
+  const [y0, y1] = ov.ylim;
+  const w = x1 - x0, h = y1 - y0;
+  // Sit the overlay at mean surface altitude so it reads as the ground plane
+  // under the draped glacier. Fallback to z=0 for pure 2D models.
+  let zMean = 0;
+  if (md.geometry && md.geometry.surface) {
+    const s = md.geometry.surface;
+    let acc = 0;
+    for (let i = 0; i < s.length; i++) acc += s[i];
+    zMean = acc / s.length;
+  }
+  const loader = new THREE.TextureLoader();
+  loader.load(ov.image, (texture) => {
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const geom = new THREE.PlaneGeometry(w, h);
+    const mat = new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+    });
+    overlayMesh = new THREE.Mesh(geom, mat);
+    overlayMesh.position.set((x0 + x1) / 2, (y0 + y1) / 2, zMean);
+    overlayMesh.renderOrder = -1;
+    scene.add(overlayMesh);
+  }, undefined, (err) => {
+    console.warn('overlay texture failed:', ov.image, err);
+  });
 }
 
 function computeFrozenCaxis(fieldName) {
@@ -198,12 +255,13 @@ function renderField(fieldName) {
     });
   }
   const colormap = 'jet';
-  const zExag = is3dMesh(modelData) ? currentZExag : 1;
+  const zExag = needsZExagUI(modelData) ? currentZExag : 1;
   const { group, caxis } = plotmodel(scene, modelData, results[fieldName], {
     colormap,
     caxis: frozenCaxis || undefined,
     edgecolor: [1, 1, 1, 0.2],
     zExaggeration: zExag,
+    drapeOnSurface: hasDrapableSurface(modelData),
   });
   currentGroup = group;
   const steps = getSteps();
@@ -217,11 +275,17 @@ function renderField(fieldName) {
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z) || 1;
-  if (is3dMesh(modelData)) {
-    const d = maxDim * 1.6;
+  // For draped 2D meshes, frame on horizontal extent only — otherwise cranking
+  // z-exag inflates size.z and the camera pulls so far back that the horizontal
+  // detail vanishes and the terrain reads as flat.
+  const frameDim = hasDrapableSurface(modelData)
+    ? (Math.max(size.x, size.y) || 1)
+    : maxDim;
+  if (needsZExagUI(modelData)) {
+    const d = frameDim * 1.6;
     camera.position.set(center.x + d * 0.6, center.y - d * 0.9, center.z + d * 0.6);
   } else {
-    camera.position.set(center.x, center.y, center.z + maxDim * 1.6);
+    camera.position.set(center.x, center.y, center.z + frameDim * 1.6);
   }
   camera.near = Math.max(maxDim * 1e-3, 0.1);
   camera.far = maxDim * 100;
@@ -259,7 +323,7 @@ async function selectTest(testId) {
   currentStepIdx = Math.max(getSteps().length - 1, 0);
   populateStepSlider();
   populateFieldDropdown();
-  if (zexagRow) zexagRow.style.display = is3dMesh(modelData) ? '' : 'none';
+  if (zexagRow) zexagRow.style.display = needsZExagUI(modelData) ? '' : 'none';
   if (zexagLabel) zexagLabel.textContent = `×${Math.round(currentZExag)}`;
 
   if (hasNative()) {
