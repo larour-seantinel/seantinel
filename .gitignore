@@ -14,6 +14,8 @@ data/
 output/
 # Keep packaged APK assets (not local scratch).
 !android-spike/assets/data/
+# Keep website data served by Vite.
+!public/data/
 
 # Binary/document strays
 *.pdf
@@ -27,6 +29,9 @@ output/
 *.jpeg
 *.gif
 *.webp
+# But keep images bundled with the website or the APK.
+!public/data/*.png
+!android-spike/assets/data/*.png
 
 # Env and secrets
 .env
