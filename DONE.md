@@ -70,3 +70,6 @@ milestone has been crossed; otherwise ignore.
 - `/dev` viewer at `dev.html` + `src/dev.js` renders snapshots in Three.js (vertex-colored field, z-exag slider, auto-refresh)
 - `plot_web(md, name, field)` + `public/dev/index.json` as the local plotting pipeline on-device
 - Rising-water plane in `/dev` viewer: translucent z=z_water plane sized to terrain bbox, slider range auto-derived from field min/max, tracks z-exag
+- Satellite drape: USGS NAIPPlus 1m aerial fetched for same Hermosa bbox, copied to `public/dev/hermosa_naip.jpg`, written as second snapshot `hermosa_draped` with planar UVs; viewer texture-maps when `imagery` is present
+- Snapshot schema extended with `center`, `focus_radius`, `imagery`, `bbox`; viewer uses them to orbit around the lat/lon anchor at sea level and frame it at a chosen radius instead of the DEM bbox midpoint
+- Z-up OrbitControls: `camera.up.set(0,0,1)` so drag orbits the vertical axis instead of rolling the horizon

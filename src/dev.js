@@ -34,6 +34,9 @@ function initScene() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x111111);
   camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1e8);
+  // World is Z-up (DEM z = elevation). Default Y-up makes OrbitControls roll
+  // the horizon as you drag — set up=Z so orbit stays around the vertical axis.
+  camera.up.set(0, 0, 1);
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true });
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight, false);
@@ -166,7 +169,23 @@ function renderSnap(snap) {
   geom.setIndex(new THREE.BufferAttribute(index, 1));
 
   let mat;
-  if (field) {
+  if (snap.imagery) {
+    // Planar top-down drape: u/v from bbox so each vertex samples the right pixel.
+    const bbox = snap.bbox || [
+      Math.min(...x), Math.min(...y), Math.max(...x), Math.max(...y),
+    ];
+    const [xmin, ymin, xmax, ymax] = bbox;
+    const uvs = new Float32Array(nv * 2);
+    for (let i = 0; i < nv; i++) {
+      uvs[2 * i + 0] = (x[i] - xmin) / (xmax - xmin);
+      uvs[2 * i + 1] = (y[i] - ymin) / (ymax - ymin);
+    }
+    geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    const tex = new THREE.TextureLoader().load('/dev/' + snap.imagery);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
+    cbarWrap.style.display = 'none';
+  } else if (field) {
     let fmin = Infinity, fmax = -Infinity;
     for (let i = 0; i < nv; i++) {
       if (field[i] < fmin) fmin = field[i];
@@ -197,15 +216,27 @@ function renderSnap(snap) {
   scene.add(currentMesh);
 
   const box = new THREE.Box3().setFromObject(currentMesh);
-  const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z) || 1;
-  camera.position.set(center.x, center.y - maxDim * 1.4, center.z + maxDim * 0.9);
-  camera.near = Math.max(maxDim * 1e-3, 0.1);
+  // Prefer snapshot-provided center (e.g., the lat/lon anchor at sea level)
+  // over the DEM-bbox midpoint, which otherwise floats mid-air.
+  const target = snap.center
+    ? new THREE.Vector3(snap.center[0], snap.center[1], (snap.center[2] - zMean) * currentZExag + zMean)
+    : box.getCenter(new THREE.Vector3());
+  // Frame the lat/lon anchor at focus_radius (not the whole mesh bbox).
+  const focusR = snap.focus_radius || maxDim * 0.5;
+  const camDist = focusR / Math.tan(camera.fov * Math.PI / 360);
+  const elRad = 33 * Math.PI / 180;
+  camera.position.set(
+    target.x,
+    target.y - camDist * Math.cos(elRad),
+    target.z + camDist * Math.sin(elRad),
+  );
+  camera.near = Math.max(focusR * 1e-2, 0.1);
   camera.far = maxDim * 100;
   camera.updateProjectionMatrix();
-  camera.lookAt(center);
-  controls.target.copy(center);
+  camera.lookAt(target);
+  controls.target.copy(target);
   controls.update();
 
   snapMeta.textContent = `nverts=${nv} nelts=${ne}${field ? ` · field=${snap.field_name || 'field'}` : ''}`;

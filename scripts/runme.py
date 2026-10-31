@@ -50,8 +50,15 @@ DEV_OUT.mkdir(parents=True, exist_ok=True)
 from organizer import organizer  # noqa: E402
 
 
-def plot_web(md, name, field=None, field_name=None):
-    """Write a mesh+field snapshot the local Vite dev viewer can render."""
+def plot_web(md, name, field=None, field_name=None, center=None,
+             imagery=None, bbox=None, focus_radius=None):
+    """Write a mesh+field snapshot the local Vite dev viewer can render.
+
+    center: optional [cx, cy, cz] in local coords for the viewer's orbit target.
+    imagery: optional filename (relative to public/dev/) of a top-down texture.
+    bbox: optional [xmin, ymin, xmax, ymax] for planar UVs (derived if omitted).
+    focus_radius: optional radius (local units) the initial camera should frame.
+    """
     import numpy as np
     import time
     out = {
@@ -60,9 +67,19 @@ def plot_web(md, name, field=None, field_name=None):
         "y": np.asarray(md.mesh.y, dtype=float).tolist(),
         "elements": np.asarray(md.mesh.elements, dtype=int).tolist(),
     }
+    if center is not None:
+        out["center"] = [float(c) for c in center]
+    if focus_radius is not None:
+        out["focus_radius"] = float(focus_radius)
     if field is not None:
         out["field"] = np.asarray(field, dtype=float).tolist()
         out["field_name"] = field_name or "field"
+    if imagery is not None:
+        out["imagery"] = imagery
+        if bbox is None:
+            bbox = [float(min(out["x"])), float(min(out["y"])),
+                    float(max(out["x"])), float(max(out["y"]))]
+        out["bbox"] = [float(b) for b in bbox]
     (DEV_OUT / f"{name}.json").write_text(json.dumps(out))
 
     # Maintain index.json so the /dev viewer can list snapshots.
@@ -126,6 +143,30 @@ def fetch_hermosa_dem():
     return tif
 
 
+def fetch_hermosa_imagery():
+    """USGS NAIPPlus 1m aerial via ExportImage (CONUS, no auth). JPG cached in data/Hermosa."""
+    import requests
+    out_dir = ROOT / "data" / "Hermosa"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    jpg = out_dir / "hermosa_naip.jpg"
+    if jpg.exists() and jpg.stat().st_size > 50_000:
+        print(f"  cached imagery: {jpg} ({jpg.stat().st_size} bytes)")
+        return jpg
+    west, south, east, north, _, _ = _wgs84_bbox(*HERMOSA_CENTER, HERMOSA_HALF_M)
+    url = ("https://imagery.nationalmap.gov/arcgis/rest/services/"
+           "USGSNAIPPlus/ImageServer/exportImage")
+    params = {
+        "bbox": f"{west},{south},{east},{north}",
+        "bboxSR": "4326", "imageSR": "4326",
+        "size": "1024,1024", "format": "jpg", "f": "image",
+    }
+    r = requests.get(url, params=params, timeout=90)
+    r.raise_for_status()
+    jpg.write_bytes(r.content)
+    print(f"  fetched imagery: {jpg} ({len(r.content)} bytes)")
+    return jpg
+
+
 def step_read_hermosa_dem(org):
     """Fetch USGS 3DEP 1m DEM, mesh via BAMG, drape topo, snapshot."""
     import numpy as np
@@ -169,7 +210,22 @@ def step_read_hermosa_dem(org):
         print(f"  refine {i+1}: nv={md.mesh.numberofvertices} ne={md.mesh.numberofelements}")
 
     md.geometry.surface = topo
-    plot_web(md, "hermosa_topo", field=topo, field_name="topo (m)")
+    # Orbit target = HERMOSA_CENTER (local origin) at sea level, not the DEM midpoint.
+    plot_web(md, "hermosa_topo", field=topo, field_name="topo (m)",
+             center=[0.0, 0.0, 0.0])
+
+    # Satellite drape: NAIP 1m aerial over the same mesh. Second snapshot so
+    # the elevation-colored view is still available.
+    import shutil
+    naip_src = fetch_hermosa_imagery()
+    naip_dst = DEV_OUT / "hermosa_naip.jpg"
+    if not naip_dst.exists() or naip_dst.stat().st_mtime < naip_src.stat().st_mtime:
+        shutil.copyfile(naip_src, naip_dst)
+    xmin, xmax = float(x_grid[0]), float(x_grid[-1])
+    ymin, ymax = float(y_grid[0]), float(y_grid[-1])
+    plot_web(md, "hermosa_draped", field=topo, field_name="topo (m)",
+             center=[0.0, 0.0, 0.0], focus_radius=150.0,
+             imagery="hermosa_naip.jpg", bbox=[xmin, ymin, xmax, ymax])
 
 
 STEPS = [

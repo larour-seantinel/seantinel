@@ -72,6 +72,15 @@ Live notes. Shipped ISSM native-stack / APK / 3D rendering details live in
 - 2026-10-31: **`/dev` viewer** at `dev.html` + `src/dev.js`. Reads `public/dev/index.json` for the snapshot list, renders selected snapshot (verts + 1-indexed elements + optional field) in Three.js. Auto-refresh checkbox polls index every 1.5 s and jumps to the newest.
 - 2026-10-31: **`plot_web(md, name, field, field_name)`** writes `public/dev/<name>.json` + updates `index.json` (dedupe by name, sort by mtime). Keep both out of git (regenerable).
 - 2026-10-31: **Vite multi-page**: add `rollupOptions.input = { main, dev }` so `vite build` ships both `index.html` and `dev.html`. Dev server auto-serves either without config.
+- 2026-10-31: **Snapshot schema extended** with optional `center`, `focus_radius`, `imagery`, `bbox`. `center` sets OrbitControls target (lat/lon anchor at sea level, not DEM-bbox midpoint which floats mid-air). `focus_radius` sets initial camera distance via `camDist = focusR / tan(fov/2)` so the view frames the anchor, not the whole mesh. `imagery` + `bbox` enables planar top-down texture drape.
+- 2026-10-31: **`camera.up` default is Y but our world is Z-up** (DEM z = elevation). Without `camera.up.set(0,0,1)` OrbitControls rolls the horizon when you drag — set up=Z and orbit stays around the vertical axis.
+- 2026-10-31: **Cloudflare Pages 308-redirects `/dev.html` → `/dev`** (strips `.html`). `curl -s https://.../dev.html` returns empty body; must use `curl -sL` to follow. Not a build-propagation issue even if it looks like one.
+
+## Satellite drape
+
+- 2026-10-31: **USGS NAIPPlus 1m aerial** via same ArcGIS ExportImage pattern as 3DEP. URL: `https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/exportImage`. Params: `bbox`, `bboxSR=4326`, `imageSR=4326`, `size=1024,1024`, `format=jpg`, `f=image`. CONUS-only, no auth, ~250 KB JPG.
+- 2026-10-31: **`curl -o /tmp/foo` silently truncates to 0 bytes on Termux** (/tmp not writable for app) but still returns HTTP 200. Write to `~/` instead. Not a server/content issue.
+- 2026-10-31: **Planar top-down drape**: `u = (x-xmin)/(xmax-xmin)`, `v = (y-ymin)/(ymax-ymin)`. Three.js `TextureLoader` default `flipY=true` so image top (north edge in NAIP) maps to V=1 which equals y=ymax — the orientation lines up without any extra flip.
 
 ## Things that didn't work
 
