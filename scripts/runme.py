@@ -168,10 +168,12 @@ def _fetch_naip(slug, center, half_m):
     params = {
         "bbox": f"{west},{south},{east},{north}",
         "bboxSR": "4326", "imageSR": "4326",
-        "size": "2048,2048", "format": "jpg", "f": "image",
+        "size": "4000,4000", "format": "jpg", "f": "image",
     }
     r = requests.get(url, params=params, timeout=120)
     r.raise_for_status()
+    if r.content.startswith(b"{"):
+        raise RuntimeError(f"NAIP returned JSON error: {r.content[:200]!r}")
     jpg.write_bytes(r.content)
     print(f"  fetched imagery: {jpg} ({len(r.content)} bytes)")
     return jpg
