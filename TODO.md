@@ -8,6 +8,7 @@ Shipped work moved to [DONE.md](DONE.md). Pull in on demand.
 
 ## Next Up — Seantinel core
 
+- Take pictures of Long Beach, Torrance, Redondo and Hermosa Beach.
 - QR code pipeline: encode a coastal location in the URL (`?lat=…&lon=…` vs slug `?loc=miami-beach`). Decide shape, then prototype one QR → one scene flow.
 - Load a NASA DEM (altimetry) for a specific coastal location. Identify dataset: ICESat-2, SRTM, or Copernicus DEM.
 - Run BAMG triangulation on the DEM. Browser path: Emscripten/WASM via `issm-binaries.js` (extract from VESL or compile).
