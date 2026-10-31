@@ -10,10 +10,10 @@ Shipped work moved to [DONE.md](DONE.md). Pull in on demand.
 
 - Take pictures of Long Beach, Torrance, Redondo and Hermosa Beach.
 - Generate QR codes for existing sites (`site.html?loc=hermosa` / `?loc=redondo`). URL shape is already settled on slug.
-- Layer a sharper inner NAIP tile (1 m, ±500 m) over the current 5 m/px 10 km tile so the pier area stays crisp.
-- Tighten 3DEP NoData handling: residual sentinels still slip past the `[-200, 1200]` mask (observed 805 m near Palos Verdes vs real ~460 m). Try rasterio or an explicit NoData query to the ArcGIS endpoint.
+- Verify Redondo scene end-to-end on-device (same ocean/spike fixes applied; only Hermosa was eyeballed).
+- Layer a sharper inner NAIP tile (now 2.5 m/px at 5 km × 5 km; still worth adding a 1 m inner tile for the pier area).
 - Investigate 3DEP ExportImage TIFF corruption at ≥2000×2000 — PIL reads it as float garbage. Would unlock higher-res DEMs. Likely rasterio solves it.
-- Add more coastal sites (Long Beach, Torrance, Palos Verdes) — just needs lat/lon entries in `SITES` in `scripts/runme.py`.
+- Add more coastal sites (Long Beach, Torrance, Palos Verdes) — just needs lat/lon entries in `SITES` in `scripts/runme.py` (remember to pick `elev_max` for the site's max real elevation).
 - Decide custom domain: `seantinel.app` (~$15/yr) vs stay on free `seantinel.pages.dev`.
 
 ## Nice to have

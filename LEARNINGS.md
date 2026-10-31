@@ -103,6 +103,15 @@ Live notes. Shipped ISSM native-stack / APK / 3D rendering details live in
 - 2026-10-31: **Cloudflare Pages build time** varies ~15–200 s. Most of this session's deploys were 16–19 s; one took 195 s. Not a progress-propagation issue, just build-queue load. Poll via `curl -sL` and `grep` for a known new string in the deployed JS or HTML.
 - 2026-10-31: **`public/data/*.jpg` must be whitelisted in `.gitignore`** because `*.jpg` is caught by the global image ignore. `!public/data/*.jpg` goes *after* the broad ignore (gitignore order rule). `public/data/*.json` is unaffected.
 
+## Coastal scene data cleanup
+
+- 2026-10-31: **3DEP returns small positive values (~0 – 1 m) for ocean floor sampling**, not 0 or NoData sentinel. So the beach-side `v <= 0 → ocean` filter leaves hundreds of near-shore vertices barely above the water plane, which render as thin dark strips (NAIP shows dark blue/green ocean texture at ~world z=2.5). Fix at pipeline: `topo[topo < 1] = -5` after `InterpFromGridToMesh`. Rule of thumb for the Hermosa/Redondo distribution: 621 vertices at 0 < z < 1 m vs 110 at 1 < z < 3 m — the ratio is the signature of 3DEP ocean noise vs real beach gradient.
+- 2026-10-31: **Isolated conical "spikes" above the water plane aren't always NoData — can be real terrain at bbox edge rendered on a coarse mesh.** For Hermosa with half_m=5000, the south edge of the bbox clipped the north slope of the Palos Verdes peninsula (real 100 m terrain). BAMG at r=5000 m has hmax=150 m target size, so a single high-elevation vertex with ocean neighbors becomes a sharp pyramid. Lesson: inspect the actual field distribution (`np.percentile`, spatial coords of high-z verts) before adding more NoData clipping. The real fix was to shrink the bbox, not clip harder.
+- 2026-10-31: **Shrinking half_m is a cheap resolution upgrade.** Dropped from 5000 m to 2500 m: NAIP tile is still 2048², so NAIP res doubles (5 m/px → 2.5 m/px); DEM is still 1000², so DEM res doubles (10 m/px → 5 m/px). No pixel-budget change, 2× sharper rendering, and the smaller bbox naturally avoids distant real-terrain spike artifacts.
+- 2026-10-31: **3DEP NoData sentinels that pass a loose [-200, 1200] mask**. Observed max=312 m in Redondo bbox where real max within 2.5 km is ~50 m. Fix: per-site `elev_max` (set to 500 m for coastal LA). Replace bad pixels with -10 (not 0) so they sit cleanly below the water plane.
+- 2026-10-31: **Water plane 5× wider than terrain** so its visible edge never shows in the viewport — avoids the "ocean ending in a square" artifact.
+- 2026-10-31: **Tukey outer fence (q75 + 5·IQR) in site.js** sinks residual positive outliers to -5 m instead of clamping them to a ceiling (clamping leaves them as visible flat plateaus; sinking makes them disappear below water).
+
 ## Things that didn't work
 
 - 2026-10-22: Claude Code `statusLine` config in `settings.json` outputs to Claude Code's own TUI — not to GNU screen's hardstatus. Different mechanisms; don't conflate.
