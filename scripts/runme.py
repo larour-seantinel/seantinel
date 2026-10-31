@@ -114,6 +114,11 @@ SITES = [
      "center": (33.8382488, -118.3907496),
      "half_m": 2500, "fine_r": 500,
      "focus_radius": 150.0, "elev_max": 500},
+    {"slug": "hermosa_closeup", "title": "Hermosa Beach (close-up)",
+     "center": (33.8625476, -118.4019461),
+     "half_m": 250, "fine_r": 100,
+     "focus_radius": 60.0, "elev_max": 500,
+     "hmin": 2.0, "hmax": 30.0},
 ]
 
 
@@ -254,7 +259,8 @@ def _build_site(site):
     # Graded mesh: fine (~hmin) inside fine_r of the center, growing linearly
     # to ~hmax at the outer edge. One remesh pass with per-vertex target sizes.
     fine_r = site.get("fine_r", 500.0)
-    hmin, hmax = 4.0, 150.0
+    hmin = site.get("hmin", 4.0)
+    hmax = site.get("hmax", 150.0)
     md = bamg(model(), "domain", str(exp_path), "hmax", hmax)
     print(f"  initial mesh: nv={md.mesh.numberofvertices} ne={md.mesh.numberofelements}")
 

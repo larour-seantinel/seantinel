@@ -103,6 +103,11 @@ Live notes. Shipped ISSM native-stack / APK / 3D rendering details live in
 - 2026-10-31: **Cloudflare Pages build time** varies ~15–200 s. Most of this session's deploys were 16–19 s; one took 195 s. Not a progress-propagation issue, just build-queue load. Poll via `curl -sL` and `grep` for a known new string in the deployed JS or HTML.
 - 2026-10-31: **`public/data/*.jpg` must be whitelisted in `.gitignore`** because `*.jpg` is caught by the global image ignore. `!public/data/*.jpg` goes *after* the broad ignore (gitignore order rule). `public/data/*.json` is unaffected.
 
+## Buildings / DSM
+
+- 2026-10-31: **3DEP ExportImage is bare-earth DTM, confirmed.** Hermosa 500 m box at 0.5 m/px: max gradient 0.88 m/px, zero pixels with >2 m/px jumps. Buildings would show 3–5 m single-pixel cliffs; there are none. Max elevation 22 m is the natural mesa ridge inland. Residential rooftops are stripped before the raster leaves the server. Need a DSM source (OSM/MS building footprints extruded, or an alternate 3DEP service) to render structures.
+- 2026-10-31: **Per-site `hmin`/`hmax` override.** `_build_site` now reads `site.get("hmin", 4.0)` and `site.get("hmax", 150.0)` so close-up sites can push to hmin=2. `hermosa_closeup` uses hmin=2, hmax=30 → 4319 verts in a 500 m box, plenty for building footprints.
+
 ## Coastal scene data cleanup
 
 - 2026-10-31: **3DEP returns small positive values (~0 – 1 m) for ocean floor sampling**, not 0 or NoData sentinel. So the beach-side `v <= 0 → ocean` filter leaves hundreds of near-shore vertices barely above the water plane, which render as thin dark strips (NAIP shows dark blue/green ocean texture at ~world z=2.5). Fix at pipeline: `topo[topo < 1] = -5` after `InterpFromGridToMesh`. Rule of thumb for the Hermosa/Redondo distribution: 621 vertices at 0 < z < 1 m vs 110 at 1 < z < 3 m — the ratio is the signature of 3DEP ocean noise vs real beach gradient.
