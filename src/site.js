@@ -8,6 +8,7 @@ const titleEl = document.getElementById('site-title');
 const canvas = document.getElementById('canvas');
 const waterRange = document.getElementById('water-range');
 const waterLabel = document.getElementById('water-label');
+const waterContext = document.getElementById('water-context');
 
 let scene, camera, renderer, controls;
 let terrainMesh = null;
@@ -127,18 +128,46 @@ function frameCamera(s) {
   controls.update();
 }
 
-function configureWaterSlider() {
-  waterRange.min = '0';
-  waterRange.max = '10';
-  waterRange.step = '0.1';
-  waterRange.value = '0';
-  waterRange.disabled = false;
-  updateWaterZ(0);
+// Browser locale → likely feet-using country. navigator.language is a decent
+// proxy for where the viewer is — region is "US" for en-US, "FR" for fr-FR,
+// etc. Only US, Liberia, Myanmar use feet officially.
+function usesFeet() {
+  try {
+    const tag = navigator.language || 'en';
+    const loc = new Intl.Locale(tag).maximize();
+    return ['US', 'LR', 'MM'].includes((loc.region || '').toUpperCase());
+  } catch (_) { return false; }
 }
 
-function updateWaterZ(z) {
-  if (waterMesh) waterMesh.position.z = z * Z_EXAG;
-  waterLabel.textContent = `${z.toFixed(2)} m`;
+const UNITS = usesFeet()
+  ? { label: 'ft', toMeters: 0.3048, max: 33, step: 0.5, decimals: 1 }
+  : { label: 'm',  toMeters: 1,      max: 10, step: 0.1, decimals: 2 };
+
+function configureWaterSlider() {
+  waterRange.min = '0';
+  waterRange.max = String(UNITS.max);
+  waterRange.step = String(UNITS.step);
+  waterRange.value = '0';
+  waterRange.disabled = false;
+  updateWaterDisplay(0);
+}
+
+// Rough IPCC AR6-ish framing. Not precise — meant to give the general
+// public a sense of what each slider setting corresponds to in time.
+function scenarioFor(meters) {
+  if (meters < 0.05) return 'Today\u2019s sea level';
+  if (meters < 0.3)  return 'Projected around 2050';
+  if (meters < 0.6)  return 'Likely by 2100';
+  if (meters < 1.2)  return 'High-end 2100 scenario';
+  if (meters < 2.5)  return '2100+ with ice-sheet loss';
+  return 'Beyond 2100 (worst case)';
+}
+
+function updateWaterDisplay(sliderValue) {
+  const meters = sliderValue * UNITS.toMeters;
+  if (waterMesh) waterMesh.position.z = meters * Z_EXAG;
+  waterLabel.textContent = `${sliderValue.toFixed(UNITS.decimals)} ${UNITS.label}`;
+  if (waterContext) waterContext.textContent = scenarioFor(meters);
 }
 
 function getLocSlug() {
@@ -164,10 +193,10 @@ async function main() {
   buildWater(snap);
   frameCamera(snap);
   configureWaterSlider();
-  setStatus(`${snap.x.length} verts · ${snap.elements.length} elts`);
+  setStatus('Drag to look around. Raise the slider to flood the coast.');
 
   waterRange.addEventListener('input', () => {
-    updateWaterZ(parseFloat(waterRange.value));
+    updateWaterDisplay(parseFloat(waterRange.value));
   });
 }
 
