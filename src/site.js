@@ -60,8 +60,16 @@ function initScene() {
   })();
 }
 
+function clampedZ(zArr) {
+  // Clip NoData spikes at 95th percentile, and floor to -2 so 3DEP's
+  // zero-valued ocean floor sits below the water plane (eliminates z-fighting).
+  const sorted = Float32Array.from(zArr).sort();
+  const ceil = sorted[Math.floor(sorted.length * 0.95)];
+  return zArr.map(v => Math.max(-2, Math.min(v, ceil)));
+}
+
 function buildTerrain(s) {
-  const x = s.x, y = s.y, z = s.field, elts = s.elements;
+  const x = s.x, y = s.y, z = clampedZ(s.field), elts = s.elements;
   const nv = x.length;
   const positions = new Float32Array(nv * 3);
   for (let i = 0; i < nv; i++) {
@@ -153,10 +161,10 @@ function buildMarker(s) {
 
 function buildWater(s) {
   const [xmin, ymin, xmax, ymax] = s.bbox;
-  const geom = new THREE.PlaneGeometry(xmax - xmin, ymax - ymin);
-  const mat = new THREE.MeshBasicMaterial({
-    color: 0x2b7fcf, side: THREE.DoubleSide,
-  });
+  const w = xmax - xmin, h = ymax - ymin;
+  // Make water 5× larger than terrain so its edge is never visible.
+  const geom = new THREE.PlaneGeometry(w * 5, h * 5);
+  const mat = new THREE.MeshBasicMaterial({ color: 0x2b7fcf });
   waterMesh = new THREE.Mesh(geom, mat);
   waterMesh.position.set((xmin + xmax) / 2, (ymin + ymax) / 2, 0);
   scene.add(waterMesh);
