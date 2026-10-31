@@ -44,6 +44,18 @@ Live notes. Shipped ISSM native-stack / APK / 3D rendering details live in
 
 - 2026-10-28: **ISSM 2D SSA transient bench, Samsung ARM64** (`scripts/bench_transient.py`). np=4 (mpiexec/hydra) has ~3 s mpiexec startup floor; np=1 wins below ~10k elements. At np=1: nelt=4067 → 1.80 s (interactive sweet spot). Rule: default np=1, target ≤5k elts for interactive. Full numbers in auto-memory `project_bench_phone.md`.
 
+## Hardware / cloud
+
+- 2026-10-31: **Dev phone CPU** — Samsung Galaxy S24 FE (SM-S721U), Exynos 2400 (s5e9945), 8 GB RAM. 10 cores ARMv9.2: 1× Cortex-X4 prime @ ~3.2 GHz + 5× Cortex-A720 mid + 4× Cortex-A520 little. SVE2, bf16, i8mm, SHA3. Burst matches AWS `c7g.2xlarge`; sustained closer to `c7g.xlarge`. The X4 alone is a Graviton-class core — explains why np=1 at 4k elts in 1.8 s feels snappy.
+- 2026-10-31: **Cloudflare Pages ≠ compute.** Workers / Pages Functions free tier is 10 ms CPU + 128 MB RAM per request — unusable for ISSM. Containers are paid. Hosting pays for bandwidth, not FLOPs.
+- 2026-10-31: **Oracle Cloud Always Free ARM** is the only real free compute: 4× Ampere Altra cores + 24 GB RAM, no 12-month cutoff. Home region is **sticky at signup** — pick a region with ARM-A1 availability (Querétaro, Hyderabad, São Paulo, Jerusalem). Cloudflare's CDN decouples VM region from user latency, so a far region only costs SSH latency.
+- 2026-10-31: **Phone is the dev box.** Cloud not needed as persistent infra; rent `c7g.2xlarge` by the hour for one-off DEM/mesh preprocessing when RAM exceeds 8 GB. Output lands in Cloudflare, instance destroyed.
+
+## Backup / recovery
+
+- 2026-10-31: **CloudConfig repo** at `github.com/larour-seantinel/CloudConfig` (private) backs up `~/.claude/{commands, settings*.json, statusline*, plugins/*.json, projects/*/memory}` + `~/.bashrc`, `~/.screenrc`. `sync.sh` pulls live → repo; `restore.sh` writes repo → live. Marketplace cache + session history + telemetry deliberately excluded (regeneratable). `/close` now runs sync as step 6.
+- 2026-10-31: **Seantinel repo scope check** — pushing to Cloudflare Pages ships the entire tracked tree to GitHub, not just the website. All of `android-spike/`, `CLAUDE.md`, `LEARNINGS*.md`, `TODO.md`, `.claude/commands/` are mirrored on `origin/master`. Only phone-local gaps were `Letter/` (docs → Google Drive), `~/.claude/` (now CloudConfig), and gitignored build artifacts (rebuildable).
+
 ## Things that didn't work
 
 - 2026-10-22: Claude Code `statusLine` config in `settings.json` outputs to Claude Code's own TUI — not to GNU screen's hardstatus. Different mechanisms; don't conflate.

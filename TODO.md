@@ -21,6 +21,8 @@ Shipped work moved to [DONE.md](DONE.md). Pull in on demand.
 - 3D flat-shading support in `processmesh3d.js`: need triangle→prism index map for per-element 3D fields.
 - Clean fix for Termux netCDF4 missing `libhdf5` NEEDED: `patchelf --add-needed` on the wrapper, or lazy-import.
 - Investigate ISSM Restart tests 125/126/129 (velocities blow up at np=4).
+- Sign up Oracle Cloud Always Free (home region: Querétaro or Hyderabad for ARM-A1 availability) — 4-core / 24 GB ARM VM for NASA DEM preprocessing when needed.
+- Move `Letter/*.docx` to Google Drive (currently phone-only, not in any repo).
 
 ## Aspirational
 

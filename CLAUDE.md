@@ -81,3 +81,7 @@ Read LEARNINGS.md and TODO.md at the start of every session.
 
 - [LEARNINGS.md](LEARNINGS.md) — bugs, fixes, decisions
 - [TODO.md](TODO.md) — task queue
+
+## Config backup
+
+`~/CloudConfig/` → `github.com/larour-seantinel/CloudConfig` (private). Mirrors `~/.claude/` config + memory + dotfiles. `/close` auto-syncs. On a fresh device: `git clone` + `./restore.sh`.
