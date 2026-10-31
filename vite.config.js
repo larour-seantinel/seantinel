@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import { resolve } from 'path';
 
 export default defineConfig({
   base: './',
@@ -7,6 +8,12 @@ export default defineConfig({
     port: 5173
   },
   build: {
-    assetsInlineLimit: 0
+    assetsInlineLimit: 0,
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        dev: resolve(__dirname, 'dev.html')
+      }
+    }
   }
 });

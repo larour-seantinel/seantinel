@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Seantinel</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<!-- HOME -->
+<section id="home" class="screen">
+  <button class="tile todo"   data-tile="todo">   <span class="emoji">&#9745;</span><span class="label">TO-DO</span></button>
+  <button class="tile mail"   data-tile="mail">   <span class="emoji">&#128231;</span><span class="label">MAIL</span></button>
+  <button class="tile news"   data-tile="news">   <span class="emoji">&#128240;</span><span class="label">NEWS</span></button>
+  <button class="tile learn"  data-tile="learn">  <span class="emoji">&#128214;</span><span class="label">LEARN</span></button>
+  <button class="tile claude" data-tile="claude"> <span class="emoji">&#10033;</span><span class="label">CLAUDE</span></button>
+</section>
+
+<!-- TO-DO -->
+<section id="todo" class="screen hidden">
+  <header class="topbar">
+    <button id="back" class="pill x">&times;</button>
+    <span id="count" class="count">0 items</span>
+    <button id="settings" class="pill gear">&#9881;</button>
+  </header>
+
+  <h1 class="section-title">TO-DO</h1>
+
+  <div id="list" class="list"></div>
+
+  <div class="status" id="status"></div>
+
+  <footer class="controls">
+    <div class="row">
+      <button data-act="up">&#9650; UP</button>
+      <button data-act="down">&#9660; DOWN</button>
+      <button data-act="top">&#8613; TOP</button>
+    </div>
+    <div class="row">
+      <button class="danger" data-act="delete">DELETE</button>
+      <button class="good"   data-act="arch">ARCH</button>
+      <button class="muted"  data-act="undo">UNDO &#8617;</button>
+    </div>
+    <div class="row big">
+      <button class="primary" data-act="add">ADD &#9999;</button>
+      <button class="accent"  data-act="ask">ASK CLAUDE &#127908;</button>
+    </div>
+  </footer>
+</section>
+
+<!-- ADD modal -->
+<div id="add-modal" class="modal hidden">
+  <div class="modal-card">
+    <h2>Add TO-DO item</h2>
+    <input id="add-input" type="text" placeholder="New item">
+    <div class="modal-row">
+      <button id="add-cancel" class="muted">Cancel</button>
+      <button id="add-save" class="primary">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- SETTINGS modal -->
+<div id="settings-modal" class="modal hidden">
+  <div class="modal-card">
+    <h2>Settings</h2>
+    <label>GitHub PAT (repo write)</label>
+    <input id="pat" type="password" placeholder="ghp_...">
+    <label>Owner</label>
+    <input id="owner" type="text" value="larour-seantinel">
+    <label>Repo</label>
+    <input id="repo" type="text" value="seantinel">
+    <label>Branch</label>
+    <input id="branch" type="text" value="master">
+    <label>File path</label>
+    <input id="path" type="text" value="TODO.md">
+    <div class="modal-row">
+      <button id="settings-cancel" class="muted">Cancel</button>
+      <button id="settings-save" class="primary">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

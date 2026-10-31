@@ -51,12 +51,13 @@ Ignored:
 
 ## Current Status
 
-Two artifacts shipped and feature-complete:
+Three artifacts live, Seantinel core underway.
 
 1. **Website** — live at `seantinel.pages.dev` (repo `github.com/larour-seantinel/seantinel`, Cloudflare Pages autobuild on `git push`). Currently shows only the Haig glacier (30 yr transient on a 3D textured mountain landscape).
-2. **Android APK** — `android-spike/build/spike.apk` runs the full ISSM native stack on-device: fork+exec `issm.exe` via `libissmexe.so`, np≥2 via patched `libmpiexec.so`, 2D + 3D meshes, draped surfaces, transient step slider, z-exag slider, frozen colorbar. Install via Downloads tap (wireless adb blocked on Samsung).
+2. **Android APKs** — `android-spike/build/spike.apk` runs the full ISSM native stack on-device: fork+exec `issm.exe` via `libissmexe.so`, np≥2 via patched `libmpiexec.so`, 2D + 3D meshes, draped surfaces, transient step slider, z-exag slider, frozen colorbar. `android-todo/build/todo.apk` is a 5-tile home screen (TO-DO + MAIL/NEWS/LEARN/CLAUDE) with TO-DO reading/writing `TODO.md` on GitHub via Contents API. Install via Downloads tap (wireless adb blocked on Samsung).
+3. **Seantinel pipeline bootstrapped**: `scripts/runme.py` is a Python port of the MATLAB `runme.m` using the local ISSM trunk's Python layer (`bamg`, `InterpFromGridToMesh`, `organizer`). First step `ReadHermosaDEM` fetches USGS 3DEP 1m DEM for Hermosa Beach pier (33.8625476, -118.4019461) ±500 m, meshes with BAMG + 3 refine passes, drops a snapshot into `public/dev/hermosa_topo.json`. The `/dev` viewer at `dev.html` renders snapshots in Three.js — this is the local plot pipeline instead of plotmodel (which can't load on-device because of the libtriangle/GDAL chain).
 
-Next step: **pivot to Seantinel core** — NASA DEM + satellite drape + rising-water plane for a coastal location, driven by QR codes that encode location in the URL.
+Next step: **rising-water plane** on the Hermosa topo mesh, then satellite imagery drape, then QR code location encoding.
 
 Shipped history and build details live in [DONE.md](DONE.md) and
 [LEARNINGS-archive.md](LEARNINGS-archive.md) — not auto-loaded.
@@ -85,3 +86,24 @@ Read LEARNINGS.md and TODO.md at the start of every session.
 ## Config backup
 
 `~/CloudConfig/` → `github.com/larour-seantinel/CloudConfig` (private). Mirrors `~/.claude/` config + memory + dotfiles. `/close` auto-syncs. On a fresh device: `git clone` + `./restore.sh`.
+
+## Showing plots to Eric
+
+Eric does not run `npm run dev` or open URLs manually. When you want him to look
+at a plot or page, you do both:
+
+1. If Vite isn't already running, start it: `cd ~/Seantinel && npm run dev`
+   with `run_in_background: true`.
+2. Open the browser yourself: `termux-open-url "http://localhost:5173/<path>"`.
+
+Applies to `/dev.html` snapshot viewer and the main site. Also applies when you
+drop a new snapshot via `plot_web()` — tell Eric to switch to the browser tab,
+don't ask him to open it.
+
+## Shared-file sync discipline
+
+The phone TO-DO app (`android-todo`) writes directly to `TODO.md` on GitHub master. Local checkout may be behind at any time.
+
+- `/start` pulls (fast-forward only) if clean.
+- Before editing TODO.md (or any file the app writes) mid-session, re-run `git fetch origin master` and `git pull --ff-only` if clean. Never auto-merge; if diverged, stop and ask.
+- Same rule applies if we add more app-writable files later (DONE.md, etc.).

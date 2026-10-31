@@ -56,6 +56,23 @@ Live notes. Shipped ISSM native-stack / APK / 3D rendering details live in
 - 2026-10-31: **CloudConfig repo** at `github.com/larour-seantinel/CloudConfig` (private) backs up `~/.claude/{commands, settings*.json, statusline*, plugins/*.json, projects/*/memory}` + `~/.bashrc`, `~/.screenrc`. `sync.sh` pulls live → repo; `restore.sh` writes repo → live. Marketplace cache + session history + telemetry deliberately excluded (regeneratable). `/close` now runs sync as step 6.
 - 2026-10-31: **Seantinel repo scope check** — pushing to Cloudflare Pages ships the entire tracked tree to GitHub, not just the website. All of `android-spike/`, `CLAUDE.md`, `LEARNINGS*.md`, `TODO.md`, `.claude/commands/` are mirrored on `origin/master`. Only phone-local gaps were `Letter/` (docs → Google Drive), `~/.claude/` (now CloudConfig), and gitignored build artifacts (rebuildable).
 
+## ISSM Python on-device
+
+- 2026-10-31: **ISSM Python wrappers need `libtriangle.so` on `LD_LIBRARY_PATH`** at dlopen time. Even `IssmConfig_python.so` pulls it. Fix: `runme.py` self-reexecs once with `LD_LIBRARY_PATH=$ISSM_DIR/externalpackages/triangle/install/lib:$ISSM_DIR/lib` injected via `os.execvp`, so plain `python3 runme.py` works without a shell wrapper.
+- 2026-10-31: **Don't `import devpath`.** `devpath.py` imports `plotmodel` → `plot_manager` → `plot_gridded` → `InterpFromMeshToGrid` (needs `libtriangle.so`) → GDAL. Entire plotting chain breaks on Android. Sidestep: walk `$ISSM_DIR/src/m` yourself, skip the `plot/` dir, append any dir containing `.py` to `sys.path`. Then `bamg`, `model`, `InterpFromGridToMesh` import clean.
+- 2026-10-31: **Verified on-device**: `bamg(model(), 'domain', exp, 'hmax', 20)` + `InterpFromGridToMesh(xg, yg, data, md.mesh.x, md.mesh.y, 0)` work. 1 km² at hmax=20 → 3019 verts initial; refine (hmax=100, hmin=4, err=0.5) ×3 → 755 verts.
+
+## Geo on Termux
+
+- 2026-10-31: **pyproj install needs native PROJ** (`pkg install proj` first). Not worth it for small jobs — inline WGS84→local-tangent math is fine for ≤10 km boxes: `m_per_deg_lon = 110540 * cos(lat0)`, `m_per_deg_lat = 110540`.
+- 2026-10-31: **USGS 3DEP ImageServer** gives free CONUS 1m DEMs with no auth. URL: `https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage`. Params: `bbox` (WGS84 or any SR), `bboxSR=4326`, `size=1000,1000`, `format=tiff`, `pixelType=F32`, `f=image`. Response is a plain GeoTIFF readable by PIL — since you set the bbox, you already know the geotransform.
+
+## Dev viewer (local plot pipeline)
+
+- 2026-10-31: **`/dev` viewer** at `dev.html` + `src/dev.js`. Reads `public/dev/index.json` for the snapshot list, renders selected snapshot (verts + 1-indexed elements + optional field) in Three.js. Auto-refresh checkbox polls index every 1.5 s and jumps to the newest.
+- 2026-10-31: **`plot_web(md, name, field, field_name)`** writes `public/dev/<name>.json` + updates `index.json` (dedupe by name, sort by mtime). Keep both out of git (regenerable).
+- 2026-10-31: **Vite multi-page**: add `rollupOptions.input = { main, dev }` so `vite build` ships both `index.html` and `dev.html`. Dev server auto-serves either without config.
+
 ## Things that didn't work
 
 - 2026-10-22: Claude Code `statusLine` config in `settings.json` outputs to Claude Code's own TUI — not to GNU screen's hardstatus. Different mechanisms; don't conflate.
