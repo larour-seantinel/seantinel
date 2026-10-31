@@ -69,3 +69,4 @@ milestone has been crossed; otherwise ignore.
 - `ReadHermosaDEM` step: USGS 3DEP 1m DEM fetch (±500 m around pier) → BAMG mesh (hmax=20) → 3 refine passes → `plot_web` snapshot
 - `/dev` viewer at `dev.html` + `src/dev.js` renders snapshots in Three.js (vertex-colored field, z-exag slider, auto-refresh)
 - `plot_web(md, name, field)` + `public/dev/index.json` as the local plotting pipeline on-device
+- Rising-water plane in `/dev` viewer: translucent z=z_water plane sized to terrain bbox, slider range auto-derived from field min/max, tracks z-exag

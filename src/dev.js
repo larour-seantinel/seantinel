@@ -9,6 +9,8 @@ const snapMeta = document.getElementById('snap-meta');
 const autoRefresh = document.getElementById('auto-refresh');
 const zexagRange = document.getElementById('zexag-range');
 const zexagLabel = document.getElementById('zexag-label');
+const waterRange = document.getElementById('water-range');
+const waterLabel = document.getElementById('water-label');
 const cbarWrap = document.getElementById('cbar');
 const cbarCanvas = document.getElementById('cbar-canvas');
 const cbarTitle = document.getElementById('cbar-title');
@@ -19,8 +21,11 @@ const camReadout = document.getElementById('cam-readout');
 const COLORMAP = 'jet';
 let scene, camera, renderer, controls;
 let currentMesh = null;
+let currentWater = null;
 let currentSnap = null;
 let currentZExag = 1;
+let currentZMean = 0;
+let currentWaterZ = 0;
 let indexMtimeSeen = 0;
 
 function setStatus(m) { statusEl.textContent = m; }
@@ -70,6 +75,41 @@ function clearMesh() {
   currentMesh = null;
 }
 
+function clearWater() {
+  if (!currentWater) return;
+  scene.remove(currentWater);
+  if (currentWater.geometry) currentWater.geometry.dispose();
+  if (currentWater.material) currentWater.material.dispose();
+  currentWater = null;
+}
+
+function waterZDisplayed(zWater) {
+  return (zWater - currentZMean) * currentZExag + currentZMean;
+}
+
+function updateWater() {
+  if (!currentSnap || !currentSnap.field) return;
+  const x = currentSnap.x, y = currentSnap.y;
+  let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+  for (let i = 0; i < x.length; i++) {
+    if (x[i] < xmin) xmin = x[i]; if (x[i] > xmax) xmax = x[i];
+    if (y[i] < ymin) ymin = y[i]; if (y[i] > ymax) ymax = y[i];
+  }
+  const z = waterZDisplayed(currentWaterZ);
+  if (!currentWater) {
+    const geom = new THREE.PlaneGeometry(1, 1);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0x2b7fcf, transparent: true, opacity: 0.55,
+      side: THREE.DoubleSide, depthWrite: false,
+    });
+    currentWater = new THREE.Mesh(geom, mat);
+    scene.add(currentWater);
+  }
+  currentWater.position.set((xmin + xmax) / 2, (ymin + ymax) / 2, z);
+  currentWater.scale.set(xmax - xmin, ymax - ymin, 1);
+  waterLabel.textContent = `${currentWaterZ.toFixed(2)} m`;
+}
+
 // Pick a value between min/max from a colormap LUT.
 function sampleCmap(cmap, t) {
   const n = cmap.length;
@@ -103,6 +143,7 @@ function renderSnap(snap) {
   let zMean = 0;
   for (let i = 0; i < nv; i++) zMean += z[i];
   zMean /= nv;
+  currentZMean = zMean;
 
   const positions = new Float32Array(nv * 3);
   for (let i = 0; i < nv; i++) {
@@ -169,6 +210,29 @@ function renderSnap(snap) {
 
   snapMeta.textContent = `nverts=${nv} nelts=${ne}${field ? ` · field=${snap.field_name || 'field'}` : ''}`;
   setStatus(`loaded ${snap.name}`);
+
+  if (field) {
+    let zmin = Infinity, zmax = -Infinity;
+    for (let i = 0; i < nv; i++) {
+      if (field[i] < zmin) zmin = field[i];
+      if (field[i] > zmax) zmax = field[i];
+    }
+    // Pad range a bit so the slider can go below terrain min / above max.
+    const pad = Math.max((zmax - zmin) * 0.05, 0.5);
+    waterRange.min = (zmin - pad).toFixed(2);
+    waterRange.max = (zmax + pad).toFixed(2);
+    waterRange.step = Math.max((zmax - zmin) / 500, 0.01).toFixed(3);
+    waterRange.disabled = false;
+    if (currentWaterZ < +waterRange.min || currentWaterZ > +waterRange.max) {
+      currentWaterZ = Math.max(0, +waterRange.min);
+    }
+    waterRange.value = currentWaterZ;
+    updateWater();
+  } else {
+    clearWater();
+    waterRange.disabled = true;
+    waterLabel.textContent = '—';
+  }
 }
 
 async function fetchJson(url) {
@@ -239,6 +303,10 @@ async function main() {
     currentZExag = Math.pow(10, parseFloat(zexagRange.value));
     zexagLabel.textContent = `×${currentZExag < 10 ? currentZExag.toFixed(1) : Math.round(currentZExag)}`;
     if (currentSnap) renderSnap(currentSnap);
+  });
+  waterRange.addEventListener('input', () => {
+    currentWaterZ = parseFloat(waterRange.value);
+    updateWater();
   });
 
   await loadIndex();

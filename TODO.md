@@ -9,7 +9,6 @@ Shipped work moved to [DONE.md](DONE.md). Pull in on demand.
 ## Next Up — Seantinel core
 
 - Take pictures of Long Beach, Torrance, Redondo and Hermosa Beach.
-- Add rising-water-plane step to `runme.py` — translucent z=z_water plane over Hermosa topo; slider in `/dev` viewer.
 - Satellite imagery drape over Hermosa terrain (NAIP or Google Static Maps for the same 1 km bbox).
 - Port MATLAB `Naples` / `MergedLongBeach` steps if we want multi-site before QR flow.
 - Widen Hermosa bbox options (1 km → 2–5 km) and let `runme.py` take `--half-m` arg.
