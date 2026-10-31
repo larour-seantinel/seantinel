@@ -33,6 +33,7 @@ public/dev/
 *.webp
 # But keep images bundled with the website or the APK.
 !public/data/*.png
+!public/data/*.jpg
 !android-spike/assets/data/*.png
 # Launcher icons must ship with the APK.
 !android-spike/res/mipmap-*/

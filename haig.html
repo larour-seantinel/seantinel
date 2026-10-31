@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Seantinel</title>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #111; color: #ddd; font-family: sans-serif; }
+    #canvas { display: block; width: 100vw; height: 100vh; }
+    #hud { position: fixed; top: 10px; left: 10px; background: rgba(0,0,0,0.6); padding: 8px 12px; border-radius: 4px; font-size: 13px; max-width: 44vw; max-height: 80vh; overflow: auto; }
+    #hud h1 { margin: 0 0 6px 0; font-size: 15px; }
+    #hud button { font-size: 12px; padding: 4px 8px; margin: 2px 4px 2px 0; }
+    #native-out { white-space: pre-wrap; font-family: monospace; font-size: 11px; margin-top: 6px; color: #0f6; background: rgba(0,0,0,0.3); padding: 6px; border-radius: 3px; max-height: 32vh; overflow: auto; }
+    #cbar { position: fixed; bottom: 20px; left: 20px; width: 260px; }
+    #cbar canvas { width: 100%; height: 14px; display: block; border: 1px solid #444; }
+    #cbar .labels { display: flex; justify-content: space-between; font-size: 11px; margin-top: 2px; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div id="hud">
+    <h1>Seantinel · ISSM solve</h1>
+    <div id="status">loading…</div>
+    <div style="margin-top:6px;">
+      <label>Model:
+        <select id="test-select">
+          <option value="Haig" selected>Haig — Alberta glacier (30 yr, 10 steps)</option>
+        </select>
+      </label>
+    </div>
+    <div id="step-row" style="margin-top:4px; display:none;">
+      <label>Step:
+        <input type="range" id="step-range" min="0" max="0" value="0" step="1" style="vertical-align:middle; width:140px;" />
+        <span id="step-label" style="font-family:monospace; font-size:11px;">0/0</span>
+      </label>
+    </div>
+    <div id="zexag-row" style="margin-top:4px; display:none;">
+      <label>Z-exag:
+        <input type="range" id="zexag-range" min="0" max="3" value="2" step="0.05" style="vertical-align:middle; width:140px;" />
+        <span id="zexag-label" style="font-family:monospace; font-size:11px;">×100</span>
+      </label>
+    </div>
+    <div style="margin-top:4px;">
+      <label>Field:
+        <select id="field-select"><option>Vel</option></select>
+      </label>
+    </div>
+    <div style="margin-top:4px;">
+      <label>np:
+        <select id="np-select">
+          <option value="1" selected>1</option>
+          <option value="2">2</option>
+          <option value="4">4</option>
+        </select>
+      </label>
+    </div>
+    <div style="margin-top:6px;">
+      <button onclick="window.__hud.run()">Run</button>
+      <button onclick="window.__hud.kill()">Kill</button>
+      <button onclick="window.__hud.readLog()">Read log</button>
+      <button id="log-toggle" onclick="window.__hud.toggleLog()">Hide log</button>
+    </div>
+    <div id="cam-readout" style="margin-top:6px; font-family:monospace; font-size:11px; color:#9cf;">cam: —</div>
+    <pre id="native-out"></pre>
+  </div>
+  <div id="cbar">
+    <div id="cbar-title" style="font-size:11px; margin-bottom:2px;">Vel</div>
+    <canvas id="cbar-canvas" width="260" height="14"></canvas>
+    <div class="labels"><span id="cmin">min</span><span id="cmax">max</span></div>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
