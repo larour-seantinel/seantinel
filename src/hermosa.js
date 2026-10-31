@@ -15,9 +15,24 @@ let snap = null;
 
 function setStatus(m) { statusEl.textContent = m; }
 
+function makeSkyTexture() {
+  const c = document.createElement('canvas');
+  c.width = 2; c.height = 512;
+  const ctx = c.getContext('2d');
+  const g = ctx.createLinearGradient(0, 0, 0, 512);
+  g.addColorStop(0, '#3a7fb8');   // zenith
+  g.addColorStop(0.7, '#8fc4e8');
+  g.addColorStop(1, '#d6ecf7');   // horizon haze
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 2, 512);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 function initScene() {
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x111111);
+  scene.background = makeSkyTexture();
   camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1e7);
   camera.up.set(0, 0, 1);
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true });
@@ -33,6 +48,10 @@ function initScene() {
   window.addEventListener('resize', resize);
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
+  // Lock pitch so the camera stays above the horizon through the target —
+  // otherwise orbiting too far down reveals the back of the planar DEM.
+  // polarAngle is measured from +Z; cap at 85° → elevation stays ≥ 5°.
+  controls.maxPolarAngle = (85 * Math.PI) / 180;
 
   (function tick() {
     controls.update();
