@@ -108,12 +108,12 @@ def plot_web(md, name, field=None, field_name=None, center=None,
 SITES = [
     {"slug": "hermosa", "title": "Hermosa Beach",
      "center": (33.8625476, -118.4019461),
-     "half_m": 5000, "fine_r": 500,
-     "focus_radius": 150.0},
+     "half_m": 2500, "fine_r": 500,
+     "focus_radius": 150.0, "elev_max": 500},
     {"slug": "redondo", "title": "Redondo Beach",
      "center": (33.8382488, -118.3907496),
-     "half_m": 5000, "fine_r": 500,
-     "focus_radius": 150.0},
+     "half_m": 2500, "fine_r": 500,
+     "focus_radius": 150.0, "elev_max": 500},
 ]
 
 
@@ -222,10 +222,11 @@ def _build_site(site):
     dem = np.array(Image.open(tif), dtype=np.float64)
     # 3DEP returns NoData / out-of-coverage pixels as a huge sentinel; clamp
     # anything outside a plausible coastal elevation range to sea level.
-    bad = ~np.isfinite(dem) | (dem < -200) | (dem > 1200)
+    elev_max = site.get("elev_max", 1200)
+    bad = ~np.isfinite(dem) | (dem < -200) | (dem > elev_max)
     if bad.any():
-        print(f"  DEM: masking {bad.sum()}/{bad.size} nodata/absurd pixels to 0")
-        dem[bad] = 0.0
+        print(f"  DEM: masking {bad.sum()}/{bad.size} nodata/absurd pixels to -10")
+        dem[bad] = -10.0
     print(f"  DEM shape={dem.shape} min={dem.min():.2f} max={dem.max():.2f} mean={dem.mean():.2f}")
 
     west, south, east, north, mpl, mpa = _wgs84_bbox(*center, half_m)
@@ -261,6 +262,9 @@ def _build_site(site):
     md = bamg(md, "hVertices", hv, "hmin", hmin, "hmax", hmax)
     print(f"  graded mesh: nv={md.mesh.numberofvertices} ne={md.mesh.numberofelements}")
     topo = InterpFromGridToMesh(x_grid, y_grid, dem_flip, md.mesh.x, md.mesh.y, 0.0)
+    # 3DEP returns small positive values for ocean floor sampling. Anything
+    # below 1 m is almost certainly ocean, not real beach — sink it.
+    topo = np.where(np.asarray(topo) < 1.0, -5.0, topo)
 
     md.geometry.surface = topo
 

@@ -61,11 +61,13 @@ function initScene() {
 }
 
 function clampedZ(zArr) {
-  // Clip NoData spikes at 95th percentile, and floor to -2 so 3DEP's
-  // zero-valued ocean floor sits below the water plane (eliminates z-fighting).
   const sorted = Float32Array.from(zArr).sort();
-  const ceil = sorted[Math.floor(sorted.length * 0.95)];
-  return zArr.map(v => Math.max(-2, Math.min(v, ceil)));
+  const n = sorted.length;
+  const q25 = sorted[Math.floor(n * 0.25)];
+  const q75 = sorted[Math.floor(n * 0.75)];
+  const fence = q75 + 5 * (q75 - q25); // Tukey outer fence
+  // Outliers above fence are 3DEP NoData in the ocean — sink them, don't clamp.
+  return zArr.map(v => (v > fence || v <= 0) ? -5 : v);
 }
 
 function buildTerrain(s) {
