@@ -111,6 +111,7 @@ Live notes. Shipped ISSM native-stack / APK / 3D rendering details live in
 - 2026-10-31: **3DEP NoData sentinels that pass a loose [-200, 1200] mask**. Observed max=312 m in Redondo bbox where real max within 2.5 km is ~50 m. Fix: per-site `elev_max` (set to 500 m for coastal LA). Replace bad pixels with -10 (not 0) so they sit cleanly below the water plane.
 - 2026-10-31: **Water plane 5× wider than terrain** so its visible edge never shows in the viewport — avoids the "ocean ending in a square" artifact.
 - 2026-10-31: **Tukey outer fence (q75 + 5·IQR) in site.js** sinks residual positive outliers to -5 m instead of clamping them to a ceiling (clamping leaves them as visible flat plateaus; sinking makes them disappear below water).
+- 2026-10-31: **ArcGIS ExportImage caps at ~4000 px per side**. `size=4096,4096` returns a 400 JSON error: `"The requested image exceeds the size limit."`. `size=4000,4000` works. At 5 km × 5 km extent → ~1.25 m/px, essentially native NAIP resolution. Tile grows to ~4 MB JPG (vs 1 MB at 2048²), well within Cloudflare's free-tier bandwidth. Also: ArcGIS error responses are JSON (not an image), so the fetch pipeline needs a `content.startswith(b"{")` guard before writing to the cache file, else the error poisons subsequent runs.
 
 ## Things that didn't work
 
