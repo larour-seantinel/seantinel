@@ -12,8 +12,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
-        haig: resolve(__dirname, 'haig.html'),
-        hermosa: resolve(__dirname, 'hermosa.html'),
+        site: resolve(__dirname, 'site.html'),
         dev: resolve(__dirname, 'dev.html')
       }
     }

@@ -43,9 +43,11 @@ for extra in [ISSM_DIR / "lib", ISSM_DIR / "src" / "wrappers" / "python" / ".lib
 MODELS = ROOT / "scripts" / "Models"
 EXP = ROOT / "scripts" / "Exp"
 DEV_OUT = ROOT / "public" / "dev"
+SITE_OUT = ROOT / "public" / "data"
 MODELS.mkdir(parents=True, exist_ok=True)
 EXP.mkdir(parents=True, exist_ok=True)
 DEV_OUT.mkdir(parents=True, exist_ok=True)
+SITE_OUT.mkdir(parents=True, exist_ok=True)
 
 from organizer import organizer  # noqa: E402
 
@@ -103,8 +105,14 @@ def plot_web(md, name, field=None, field_name=None, center=None,
     print(f"  plot_web -> public/dev/{name}.json  (verts={len(out['x'])})")
 
 
-HERMOSA_CENTER = (33.8625476, -118.4019461)  # pier
-HERMOSA_HALF_M = 500                           # ±500 m box
+SITES = [
+    {"slug": "hermosa", "title": "Hermosa Beach",
+     "center": (33.8625476, -118.4019461), "half_m": 500,
+     "focus_radius": 150.0},
+    {"slug": "redondo", "title": "Redondo Beach",
+     "center": (33.8382488, -118.3907496), "half_m": 500,
+     "focus_radius": 150.0},
+]
 
 
 def _wgs84_bbox(center_lat, center_lon, half_m):
@@ -118,16 +126,16 @@ def _wgs84_bbox(center_lat, center_lon, half_m):
             m_per_deg_lon, m_per_deg_lat)
 
 
-def fetch_hermosa_dem():
-    """USGS 3DEP 1m DEM via ExportImage (CONUS, no auth). Cache in data/Hermosa."""
+def _fetch_dem(slug, center, half_m):
+    """USGS 3DEP 1m DEM via ExportImage (CONUS, no auth). Cache in data/<Slug>."""
     import requests
-    out_dir = ROOT / "data" / "Hermosa"
+    out_dir = ROOT / "data" / slug.capitalize()
     out_dir.mkdir(parents=True, exist_ok=True)
-    tif = out_dir / "hermosa_1m_wgs84.tif"
+    tif = out_dir / f"{slug}_1m_wgs84.tif"
     if tif.exists() and tif.stat().st_size > 1_000_000:
         print(f"  cached DEM: {tif} ({tif.stat().st_size} bytes)")
         return tif
-    west, south, east, north, _, _ = _wgs84_bbox(*HERMOSA_CENTER, HERMOSA_HALF_M)
+    west, south, east, north, _, _ = _wgs84_bbox(*center, half_m)
     url = ("https://elevation.nationalmap.gov/arcgis/rest/services/"
            "3DEPElevation/ImageServer/exportImage")
     params = {
@@ -143,16 +151,16 @@ def fetch_hermosa_dem():
     return tif
 
 
-def fetch_hermosa_imagery():
-    """USGS NAIPPlus 1m aerial via ExportImage (CONUS, no auth). JPG cached in data/Hermosa."""
+def _fetch_naip(slug, center, half_m):
+    """USGS NAIPPlus 1m aerial via ExportImage (CONUS, no auth)."""
     import requests
-    out_dir = ROOT / "data" / "Hermosa"
+    out_dir = ROOT / "data" / slug.capitalize()
     out_dir.mkdir(parents=True, exist_ok=True)
-    jpg = out_dir / "hermosa_naip.jpg"
+    jpg = out_dir / f"{slug}_naip.jpg"
     if jpg.exists() and jpg.stat().st_size > 50_000:
         print(f"  cached imagery: {jpg} ({jpg.stat().st_size} bytes)")
         return jpg
-    west, south, east, north, _, _ = _wgs84_bbox(*HERMOSA_CENTER, HERMOSA_HALF_M)
+    west, south, east, north, _, _ = _wgs84_bbox(*center, half_m)
     url = ("https://imagery.nationalmap.gov/arcgis/rest/services/"
            "USGSNAIPPlus/ImageServer/exportImage")
     params = {
@@ -167,31 +175,63 @@ def fetch_hermosa_imagery():
     return jpg
 
 
-def step_read_hermosa_dem(org):
-    """Fetch USGS 3DEP 1m DEM, mesh via BAMG, drape topo, snapshot."""
+def _publish_site(slug, title, md, topo, imagery_file, bbox, focus_radius):
+    """Write the draped snapshot into public/data/<slug>.json for the website.
+
+    Mirrors plot_web()'s payload but carries a `title` field and lives in a
+    git-tracked directory so Cloudflare Pages ships it.
+    """
+    import json as _json
     import numpy as np
+    out = {
+        "name": slug,
+        "title": title,
+        "x": np.asarray(md.mesh.x, dtype=float).tolist(),
+        "y": np.asarray(md.mesh.y, dtype=float).tolist(),
+        "elements": np.asarray(md.mesh.elements, dtype=int).tolist(),
+        "field": np.asarray(topo, dtype=float).tolist(),
+        "field_name": "topo (m)",
+        "center": [0.0, 0.0, 0.0],
+        "focus_radius": float(focus_radius),
+        "imagery": imagery_file,
+        "bbox": [float(b) for b in bbox],
+    }
+    path = SITE_OUT / f"{slug}.json"
+    path.write_text(_json.dumps(out))
+    print(f"  publish_site -> {path.relative_to(ROOT)} (verts={len(out['x'])})")
+
+
+def _build_site(site):
+    """Fetch DEM + NAIP, BAMG-refine, snapshot to dev viewer, publish to website."""
+    import numpy as np
+    import shutil
     from PIL import Image
     from bamg import bamg
     from model import model
     from InterpFromGridToMesh import InterpFromGridToMesh
 
-    tif = fetch_hermosa_dem()
+    slug = site["slug"]
+    center = site["center"]
+    half_m = site["half_m"]
+    title = site["title"]
+    print(f"\n== building site: {slug} ({title}) ==")
+
+    tif = _fetch_dem(slug, center, half_m)
     dem = np.array(Image.open(tif), dtype=np.float64)
     print(f"  DEM shape={dem.shape} min={dem.min():.2f} max={dem.max():.2f} mean={dem.mean():.2f}")
 
-    west, south, east, north, mpl, mpa = _wgs84_bbox(*HERMOSA_CENTER, HERMOSA_HALF_M)
-    lat0, lon0 = HERMOSA_CENTER
+    west, south, east, north, mpl, mpa = _wgs84_bbox(*center, half_m)
+    lat0, lon0 = center
     nrows, ncols = dem.shape
     col_lon = west + (np.arange(ncols) + 0.5) / ncols * (east - west)
     row_lat_td = north - (np.arange(nrows) + 0.5) / nrows * (north - south)
-    x_grid = (col_lon - lon0) * mpl                 # ascending east
-    y_grid_td = (row_lat_td - lat0) * mpa           # descending (row 0 = north)
-    # Flip so y is ascending (InterpFromGridToMesh requires it).
+    x_grid = (col_lon - lon0) * mpl
+    y_grid_td = (row_lat_td - lat0) * mpa
     dem_flip = dem[::-1, :]
     y_grid = y_grid_td[::-1]
     print(f"  local x: {x_grid[0]:.1f}..{x_grid[-1]:.1f} m  y: {y_grid[0]:.1f}..{y_grid[-1]:.1f} m")
 
-    exp_path = EXP / "HermosaSquare.exp"
+    exp_path = EXP / f"{slug.capitalize()}Square.exp"
     xl0, xl1 = x_grid[0], x_grid[-1]
     yl0, yl1 = y_grid[0], y_grid[-1]
     with open(exp_path, "w") as f:
@@ -210,32 +250,42 @@ def step_read_hermosa_dem(org):
         print(f"  refine {i+1}: nv={md.mesh.numberofvertices} ne={md.mesh.numberofelements}")
 
     md.geometry.surface = topo
-    # Orbit target = HERMOSA_CENTER (local origin) at sea level, not the DEM midpoint.
-    plot_web(md, "hermosa_topo", field=topo, field_name="topo (m)",
+
+    # Dev viewer snapshots (ignored by git, served from /dev/).
+    plot_web(md, f"{slug}_topo", field=topo, field_name="topo (m)",
              center=[0.0, 0.0, 0.0])
 
-    # Satellite drape: NAIP 1m aerial over the same mesh. Second snapshot so
-    # the elevation-colored view is still available.
-    import shutil
-    naip_src = fetch_hermosa_imagery()
-    naip_dst = DEV_OUT / "hermosa_naip.jpg"
-    if not naip_dst.exists() or naip_dst.stat().st_mtime < naip_src.stat().st_mtime:
-        shutil.copyfile(naip_src, naip_dst)
+    naip_src = _fetch_naip(slug, center, half_m)
+    naip_dev = DEV_OUT / f"{slug}_naip.jpg"
+    if not naip_dev.exists() or naip_dev.stat().st_mtime < naip_src.stat().st_mtime:
+        shutil.copyfile(naip_src, naip_dev)
+
     xmin, xmax = float(x_grid[0]), float(x_grid[-1])
     ymin, ymax = float(y_grid[0]), float(y_grid[-1])
-    plot_web(md, "hermosa_draped", field=topo, field_name="topo (m)",
-             center=[0.0, 0.0, 0.0], focus_radius=150.0,
-             imagery="hermosa_naip.jpg", bbox=[xmin, ymin, xmax, ymax])
+    plot_web(md, f"{slug}_draped", field=topo, field_name="topo (m)",
+             center=[0.0, 0.0, 0.0], focus_radius=site["focus_radius"],
+             imagery=f"{slug}_naip.jpg", bbox=[xmin, ymin, xmax, ymax])
+
+    # Website payload (tracked, served from /data/).
+    naip_pub = SITE_OUT / f"{slug}_naip.jpg"
+    shutil.copyfile(naip_src, naip_pub)
+    _publish_site(slug, title, md, topo, f"{slug}_naip.jpg",
+                  [xmin, ymin, xmax, ymax], site["focus_radius"])
 
 
-STEPS = [
-    ("ReadHermosaDEM", step_read_hermosa_dem),
-]
+def _step_for(site):
+    def _fn(org):
+        _build_site(site)
+    _fn.__name__ = f"step_build_{site['slug']}"
+    return _fn
+
+
+STEPS = [(f"Build{s['slug'].capitalize()}", _step_for(s)) for s in SITES]
 
 
 def main(argv):
-    requested = [int(a) for a in argv[1:]] or [0]
-    org = organizer("repository", str(MODELS), "prefix", "Hermosa.",
+    requested = [int(a) for a in argv[1:]] or list(range(1, len(STEPS) + 1))
+    org = organizer("repository", str(MODELS), "prefix", "Seantinel.",
                     "steps", requested)
     for name, fn in STEPS:
         if org.perform(name):

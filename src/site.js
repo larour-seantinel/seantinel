@@ -1,12 +1,13 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
+const Z_EXAG = 5;
+
 const statusEl = document.getElementById('status');
+const titleEl = document.getElementById('site-title');
 const canvas = document.getElementById('canvas');
 const waterRange = document.getElementById('water-range');
 const waterLabel = document.getElementById('water-label');
-
-const Z_EXAG = 5;
 
 let scene, camera, renderer, controls;
 let terrainMesh = null;
@@ -20,9 +21,9 @@ function makeSkyTexture() {
   c.width = 2; c.height = 512;
   const ctx = c.getContext('2d');
   const g = ctx.createLinearGradient(0, 0, 0, 512);
-  g.addColorStop(0, '#3a7fb8');   // zenith
+  g.addColorStop(0, '#3a7fb8');
   g.addColorStop(0.7, '#8fc4e8');
-  g.addColorStop(1, '#d6ecf7');   // horizon haze
+  g.addColorStop(1, '#d6ecf7');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 2, 512);
   const tex = new THREE.CanvasTexture(c);
@@ -48,9 +49,6 @@ function initScene() {
   window.addEventListener('resize', resize);
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
-  // Lock pitch so the camera stays above the horizon through the target —
-  // otherwise orbiting too far down reveals the back of the planar DEM.
-  // polarAngle is measured from +Z; cap at 85° → elevation stays ≥ 5°.
   controls.maxPolarAngle = (85 * Math.PI) / 180;
 
   (function tick() {
@@ -143,21 +141,30 @@ function updateWaterZ(z) {
   waterLabel.textContent = `${z.toFixed(2)} m`;
 }
 
+function getLocSlug() {
+  const p = new URLSearchParams(location.search);
+  return (p.get('loc') || 'hermosa').replace(/[^a-z0-9_-]/gi, '');
+}
+
 async function main() {
   initScene();
+  const slug = getLocSlug();
   try {
-    const res = await fetch('data/hermosa.json');
+    const res = await fetch(`data/${slug}.json`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     snap = await res.json();
   } catch (e) {
     setStatus('error loading data: ' + e.message);
     return;
   }
+  const label = snap.title || slug;
+  titleEl.textContent = `${label} · sea level`;
+  document.title = `Seantinel · ${label}`;
   buildTerrain(snap);
   buildWater(snap);
   frameCamera(snap);
   configureWaterSlider();
-  setStatus(`Hermosa Beach pier · ${snap.x.length} verts, ${snap.elements.length} elts`);
+  setStatus(`${snap.x.length} verts · ${snap.elements.length} elts`);
 
   waterRange.addEventListener('input', () => {
     updateWaterZ(parseFloat(waterRange.value));

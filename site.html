@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Seantinel · Hermosa Beach</title>
+  <title>Seantinel</title>
   <style>
     html, body { margin: 0; padding: 0; height: 100%; background: #111; color: #ddd; font-family: sans-serif; }
     #canvas { display: block; width: 100vw; height: 100vh; }
-    #hud { position: fixed; top: 10px; left: 10px; background: rgba(0,0,0,0.65); padding: 8px 12px; border-radius: 4px; font-size: 13px; max-width: 44vw; }
+    a.home { position: fixed; top: 10px; left: 10px; z-index: 2; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); border: 1px solid #2a3038; border-radius: 50%; color: #cfe8ff; text-decoration: none; }
+    a.home svg { width: 20px; height: 20px; display: block; }
+    a.home:hover { border-color: #4a90c9; color: #fff; }
+    #hud { position: fixed; top: 10px; left: 62px; background: rgba(0,0,0,0.65); padding: 8px 12px; border-radius: 4px; font-size: 13px; max-width: 44vw; }
     #hud h1 { margin: 0 0 6px 0; font-size: 15px; }
-    /* Vertical sea-level slider pinned to the right edge. writing-mode gives
-       a cross-browser vertical range; direction: rtl flips it so 0 is at the
-       bottom and the max is at the top. */
     #water-panel { position: fixed; right: 18px; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.65); padding: 14px 10px; border-radius: 6px; display: flex; flex-direction: column; align-items: center; gap: 10px; font-size: 12px; }
     #water-panel .title { color: #9cf; font-size: 11px; text-align: center; line-height: 1.3; }
     #water-range { writing-mode: vertical-lr; direction: rtl; width: 28px; height: 260px; }
@@ -20,8 +20,15 @@
 </head>
 <body>
   <canvas id="canvas"></canvas>
+  <a class="home" href="/" title="Home" aria-label="Home">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 11l9-8 9 8" />
+      <path d="M5 10v10h14V10" />
+      <path d="M10 20v-6h4v6" />
+    </svg>
+  </a>
   <div id="hud">
-    <h1>Hermosa Beach · sea level</h1>
+    <h1 id="site-title">Seantinel</h1>
     <div id="status">loading…</div>
   </div>
   <div id="water-panel">
@@ -29,6 +36,6 @@
     <input type="range" id="water-range" min="0" max="10" value="0" step="0.1" disabled />
     <div id="water-label">—</div>
   </div>
-  <script type="module" src="/src/hermosa.js"></script>
+  <script type="module" src="/src/site.js"></script>
 </body>
 </html>
