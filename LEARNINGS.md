@@ -82,6 +82,27 @@ Live notes. Shipped ISSM native-stack / APK / 3D rendering details live in
 - 2026-10-31: **`curl -o /tmp/foo` silently truncates to 0 bytes on Termux** (/tmp not writable for app) but still returns HTTP 200. Write to `~/` instead. Not a server/content issue.
 - 2026-10-31: **Planar top-down drape**: `u = (x-xmin)/(xmax-xmin)`, `v = (y-ymin)/(ymax-ymin)`. Three.js `TextureLoader` default `flipY=true` so image top (north edge in NAIP) maps to V=1 which equals y=ymax — the orientation lines up without any extra flip.
 
+## Site viewer (public page)
+
+- 2026-10-31: **Site routing** = one `site.html` + `src/site.js` reads `?loc=<slug>` → fetches `/data/<slug>.json`. The JSON carries its own `title`, so the viewer is site-agnostic. Landing page `index.html` is just cards linking to `site.html?loc=…`. Natural shape for the future QR flow.
+- 2026-10-31: **Three.js sky backdrop** — `scene.background = new THREE.CanvasTexture(c)` where `c` is a 2×512 vertical gradient (zenith → horizon). Three.js stretches a 2D texture as a screen-space quad, so a 1-pixel-wide canvas becomes the whole viewport.
+- 2026-10-31: **Camera pitch lock for planar DEMs** — `camera.up.set(0,0,1)` + `controls.maxPolarAngle = (85*Math.PI)/180`. Below ~90° polar the camera dips under the mesh and the back face shows; 85° leaves a 5° safety margin.
+- 2026-10-31: **Opaque water hides submerged terrain correctly** without any shoreline logic. Flat water plane at z=sealevel + default depthTest: wherever terrain z > plane z, terrain wins (dry); wherever terrain z < plane z, water wins (wet). No z-fighting since the two meshes only intersect along the shoreline curve (a 1-D set), not an area.
+- 2026-10-31: **Locale → feet detection**: `new Intl.Locale(navigator.language).maximize().region ∈ ['US','LR','MM']`. `maximize()` fills in region from a base language (`en` → `en-Latn-US`). Reliable enough for sliders; don't rely on it for compliance.
+- 2026-10-31: **Camera-facing text label**: canvas-drawn text → `THREE.CanvasTexture` → `THREE.SpriteMaterial({depthTest:false, transparent:true})` → `THREE.Sprite`. `depthTest:false` + `renderOrder: 10` keeps the label readable even when behind terrain. Scale is in world units.
+
+## Multi-scale coastal viewer
+
+- 2026-10-31: **BAMG graded mesh via `hVertices`**. Build an initial coarse mesh over the full domain (`bamg(model(), 'domain', exp, 'hmax', 150)`), compute per-vertex target size as `h_i = clamp(hmin, hmax, hmin + growth * max(r_i - fine_r, 0))`, then `bamg(md, 'hVertices', hv, 'hmin', hmin, 'hmax', hmax)`. One remesh pass. For 10 km × 10 km with fine_r=500, hmin=4, hmax=150 → ~30k verts, 60k elements, 3 MB JSON. ISSM Python wrappers accept `hVertices` the same way MATLAB does.
+- 2026-10-31: **3DEP ExportImage TIFF corruption at 2000×2000**. PIL reads it as float garbage (max 4.8e33). 1000×1000 comes back uncompressed and is fine. Likely the server LZW-compresses larger F32 TIFFs and PIL mis-decodes. Workaround: cap size at 1000×1000 and let the pixel resolution degrade; interpolation onto the mesh is still smooth. Still TODO: try rasterio if we ever need higher res.
+- 2026-10-31: **3DEP NoData sentinels slip through naive masks**. Off-coast pixels can come back as weird values that still fall in a loose `[-500, 5000]` range. Observed max=805 m near Palos Verdes where real max is ~460 m. Tighten to `[-200, 1200]` for coastal LA; even then a few sentinels survive. Not fatal for visualization but keep in mind for anything quantitative.
+- 2026-10-31: **NAIP ExportImage scales fine**. `size=2048,2048` for 10 km × 10 km → ~5 m/px tile, ~900 KB JPG. One tile, one texture, drape works unchanged.
+
+## Deploy observations
+
+- 2026-10-31: **Cloudflare Pages build time** varies ~15–200 s. Most of this session's deploys were 16–19 s; one took 195 s. Not a progress-propagation issue, just build-queue load. Poll via `curl -sL` and `grep` for a known new string in the deployed JS or HTML.
+- 2026-10-31: **`public/data/*.jpg` must be whitelisted in `.gitignore`** because `*.jpg` is caught by the global image ignore. `!public/data/*.jpg` goes *after* the broad ignore (gitignore order rule). `public/data/*.json` is unaffected.
+
 ## Things that didn't work
 
 - 2026-10-22: Claude Code `statusLine` config in `settings.json` outputs to Claude Code's own TUI — not to GNU screen's hardstatus. Different mechanisms; don't conflate.

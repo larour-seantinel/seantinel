@@ -107,10 +107,12 @@ def plot_web(md, name, field=None, field_name=None, center=None,
 
 SITES = [
     {"slug": "hermosa", "title": "Hermosa Beach",
-     "center": (33.8625476, -118.4019461), "half_m": 500,
+     "center": (33.8625476, -118.4019461),
+     "half_m": 5000, "fine_r": 500,
      "focus_radius": 150.0},
     {"slug": "redondo", "title": "Redondo Beach",
-     "center": (33.8382488, -118.3907496), "half_m": 500,
+     "center": (33.8382488, -118.3907496),
+     "half_m": 5000, "fine_r": 500,
      "focus_radius": 150.0},
 ]
 
@@ -127,11 +129,11 @@ def _wgs84_bbox(center_lat, center_lon, half_m):
 
 
 def _fetch_dem(slug, center, half_m):
-    """USGS 3DEP 1m DEM via ExportImage (CONUS, no auth). Cache in data/<Slug>."""
+    """USGS 3DEP DEM via ExportImage (CONUS, no auth). Cache keyed by extent."""
     import requests
     out_dir = ROOT / "data" / slug.capitalize()
     out_dir.mkdir(parents=True, exist_ok=True)
-    tif = out_dir / f"{slug}_1m_wgs84.tif"
+    tif = out_dir / f"{slug}_dem_h{int(half_m)}.tif"
     if tif.exists() and tif.stat().st_size > 1_000_000:
         print(f"  cached DEM: {tif} ({tif.stat().st_size} bytes)")
         return tif
@@ -144,7 +146,7 @@ def _fetch_dem(slug, center, half_m):
         "size": "1000,1000", "format": "tiff",
         "pixelType": "F32", "f": "image",
     }
-    r = requests.get(url, params=params, timeout=90)
+    r = requests.get(url, params=params, timeout=120)
     r.raise_for_status()
     tif.write_bytes(r.content)
     print(f"  fetched DEM: {tif} ({len(r.content)} bytes)")
@@ -152,11 +154,11 @@ def _fetch_dem(slug, center, half_m):
 
 
 def _fetch_naip(slug, center, half_m):
-    """USGS NAIPPlus 1m aerial via ExportImage (CONUS, no auth)."""
+    """USGS NAIPPlus 1m aerial via ExportImage. Cache keyed by extent."""
     import requests
     out_dir = ROOT / "data" / slug.capitalize()
     out_dir.mkdir(parents=True, exist_ok=True)
-    jpg = out_dir / f"{slug}_naip.jpg"
+    jpg = out_dir / f"{slug}_naip_h{int(half_m)}.jpg"
     if jpg.exists() and jpg.stat().st_size > 50_000:
         print(f"  cached imagery: {jpg} ({jpg.stat().st_size} bytes)")
         return jpg
@@ -166,9 +168,9 @@ def _fetch_naip(slug, center, half_m):
     params = {
         "bbox": f"{west},{south},{east},{north}",
         "bboxSR": "4326", "imageSR": "4326",
-        "size": "1024,1024", "format": "jpg", "f": "image",
+        "size": "2048,2048", "format": "jpg", "f": "image",
     }
-    r = requests.get(url, params=params, timeout=90)
+    r = requests.get(url, params=params, timeout=120)
     r.raise_for_status()
     jpg.write_bytes(r.content)
     print(f"  fetched imagery: {jpg} ({len(r.content)} bytes)")
@@ -218,6 +220,12 @@ def _build_site(site):
 
     tif = _fetch_dem(slug, center, half_m)
     dem = np.array(Image.open(tif), dtype=np.float64)
+    # 3DEP returns NoData / out-of-coverage pixels as a huge sentinel; clamp
+    # anything outside a plausible coastal elevation range to sea level.
+    bad = ~np.isfinite(dem) | (dem < -200) | (dem > 1200)
+    if bad.any():
+        print(f"  DEM: masking {bad.sum()}/{bad.size} nodata/absurd pixels to 0")
+        dem[bad] = 0.0
     print(f"  DEM shape={dem.shape} min={dem.min():.2f} max={dem.max():.2f} mean={dem.mean():.2f}")
 
     west, south, east, north, mpl, mpa = _wgs84_bbox(*center, half_m)
@@ -240,14 +248,19 @@ def _build_site(site):
             f.write(f"{px:.4f} {py:.4f}\n")
     print(f"  wrote {exp_path}")
 
-    md = bamg(model(), "domain", str(exp_path), "hmax", 20.0)
+    # Graded mesh: fine (~hmin) inside fine_r of the center, growing linearly
+    # to ~hmax at the outer edge. One remesh pass with per-vertex target sizes.
+    fine_r = site.get("fine_r", 500.0)
+    hmin, hmax = 4.0, 150.0
+    md = bamg(model(), "domain", str(exp_path), "hmax", hmax)
     print(f"  initial mesh: nv={md.mesh.numberofvertices} ne={md.mesh.numberofelements}")
 
+    r = np.sqrt(np.asarray(md.mesh.x) ** 2 + np.asarray(md.mesh.y) ** 2)
+    growth = (hmax - hmin) / max(half_m - fine_r, 1.0)
+    hv = np.clip(hmin + growth * np.maximum(r - fine_r, 0.0), hmin, hmax)
+    md = bamg(md, "hVertices", hv, "hmin", hmin, "hmax", hmax)
+    print(f"  graded mesh: nv={md.mesh.numberofvertices} ne={md.mesh.numberofelements}")
     topo = InterpFromGridToMesh(x_grid, y_grid, dem_flip, md.mesh.x, md.mesh.y, 0.0)
-    for i in range(3):
-        md = bamg(md, "field", topo, "hmax", 100.0, "hmin", 4.0, "err", 0.5)
-        topo = InterpFromGridToMesh(x_grid, y_grid, dem_flip, md.mesh.x, md.mesh.y, 0.0)
-        print(f"  refine {i+1}: nv={md.mesh.numberofvertices} ne={md.mesh.numberofelements}")
 
     md.geometry.surface = topo
 

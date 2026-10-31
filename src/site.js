@@ -13,6 +13,7 @@ const waterContext = document.getElementById('water-context');
 let scene, camera, renderer, controls;
 let terrainMesh = null;
 let waterMesh = null;
+let markerGroup = null;
 let snap = null;
 
 function setStatus(m) { statusEl.textContent = m; }
@@ -96,12 +97,65 @@ function buildTerrain(s) {
   scene.add(terrainMesh);
 }
 
+// Ground elevation at (x0,y0) by nearest-neighbor over the mesh verts.
+// Good enough for a single marker; the mesh is finer at the shoreline.
+function groundZAt(s, x0, y0) {
+  let bestD = Infinity, bestZ = 0;
+  for (let i = 0; i < s.x.length; i++) {
+    const dx = s.x[i] - x0, dy = s.y[i] - y0;
+    const d = dx * dx + dy * dy;
+    if (d < bestD) { bestD = d; bestZ = s.field[i]; }
+  }
+  return bestZ;
+}
+
+function makeLabelSprite(text) {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 128;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.font = 'bold 48px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+  ctx.strokeText(text, c.width / 2, c.height / 2);
+  ctx.fillStyle = '#fff';
+  ctx.fillText(text, c.width / 2, c.height / 2);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true });
+  const sprite = new THREE.Sprite(mat);
+  sprite.renderOrder = 10;
+  return sprite;
+}
+
+function buildMarker(s) {
+  const x0 = s.center[0], y0 = s.center[1];
+  const groundZ = groundZAt(s, x0, y0) * Z_EXAG;
+  markerGroup = new THREE.Group();
+
+  const sphere = new THREE.Mesh(
+    new THREE.SphereGeometry(4, 24, 24),
+    new THREE.MeshBasicMaterial({ color: 0xe02020 }),
+  );
+  sphere.position.set(x0, y0, groundZ + 4);
+  sphere.renderOrder = 10;
+  markerGroup.add(sphere);
+
+  const label = makeLabelSprite('You are here');
+  label.position.set(x0, y0, groundZ + 24);
+  label.scale.set(80, 20, 1);
+  markerGroup.add(label);
+
+  scene.add(markerGroup);
+}
+
 function buildWater(s) {
   const [xmin, ymin, xmax, ymax] = s.bbox;
   const geom = new THREE.PlaneGeometry(xmax - xmin, ymax - ymin);
   const mat = new THREE.MeshBasicMaterial({
-    color: 0x2b7fcf, transparent: true, opacity: 0.55,
-    side: THREE.DoubleSide, depthWrite: false,
+    color: 0x2b7fcf, side: THREE.DoubleSide,
   });
   waterMesh = new THREE.Mesh(geom, mat);
   waterMesh.position.set((xmin + xmax) / 2, (ymin + ymax) / 2, 0);
@@ -191,9 +245,10 @@ async function main() {
   document.title = `Seantinel · ${label}`;
   buildTerrain(snap);
   buildWater(snap);
+  buildMarker(snap);
   frameCamera(snap);
   configureWaterSlider();
-  setStatus('Drag to look around. Raise the slider to flood the coast.');
+  setStatus('Drag to look around. Use the slider to see how sea-level rise reshapes the coastline.');
 
   waterRange.addEventListener('input', () => {
     updateWaterDisplay(parseFloat(waterRange.value));

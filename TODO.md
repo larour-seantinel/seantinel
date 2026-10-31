@@ -9,13 +9,16 @@ Shipped work moved to [DONE.md](DONE.md). Pull in on demand.
 ## Next Up — Seantinel core
 
 - Take pictures of Long Beach, Torrance, Redondo and Hermosa Beach.
-- Port MATLAB `Naples` / `MergedLongBeach` steps if we want multi-site before QR flow.
-- Widen Hermosa bbox options (1 km → 2–5 km) and let `runme.py` take `--half-m` arg.
-- QR code pipeline: encode a coastal location in the URL (`?lat=…&lon=…` vs slug `?loc=hermosa-pier`). Decide shape, then prototype one QR → one scene flow.
+- Generate QR codes for existing sites (`site.html?loc=hermosa` / `?loc=redondo`). URL shape is already settled on slug.
+- Layer a sharper inner NAIP tile (1 m, ±500 m) over the current 5 m/px 10 km tile so the pier area stays crisp.
+- Tighten 3DEP NoData handling: residual sentinels still slip past the `[-200, 1200]` mask (observed 805 m near Palos Verdes vs real ~460 m). Try rasterio or an explicit NoData query to the ArcGIS endpoint.
+- Investigate 3DEP ExportImage TIFF corruption at ≥2000×2000 — PIL reads it as float garbage. Would unlock higher-res DEMs. Likely rasterio solves it.
+- Add more coastal sites (Long Beach, Torrance, Palos Verdes) — just needs lat/lon entries in `SITES` in `scripts/runme.py`.
 - Decide custom domain: `seantinel.app` (~$15/yr) vs stay on free `seantinel.pages.dev`.
 
 ## Nice to have
 
+- Mesh JSON is 3 MB per site. If sites multiply, switch to a binary payload (positions as base64 Float32Array) or gzip-friendly packing.
 - Fix `android-spike/build.sh` key-wipe bug the same way as `android-todo` (move signing keys to `.keys/` so `rm -rf build` doesn't change the APK cert).
 - Expose np=1/np=4 bench finding in APK HUD: default np=1 for ≤10k elt meshes, auto-upgrade to np=4 only for larger.
 - 3D flat-shading support in `processmesh3d.js`: need triangle→prism index map for per-element 3D fields.
