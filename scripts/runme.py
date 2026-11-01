@@ -111,13 +111,15 @@ SITES = [
      "half_m": 2500, "fine_r": 500,
      "focus_radius": 150.0, "elev_max": 500,
      "buildings": True,
-     "farfield": {"half_m": 10000, "grid_n": 80, "naip_px": 1024}},
+     "farfield": {"half_m": 10000, "grid_n": 80, "naip_px": 1024},
+     "superfarfield": {"half_m": 200000, "grid_n": 60, "naip_px": 1024}},
     {"slug": "redondo", "title": "Redondo Beach",
      "center": (33.8382488, -118.3907496),
      "half_m": 2500, "fine_r": 500,
      "focus_radius": 150.0, "elev_max": 500,
      "buildings": True,
-     "farfield": {"half_m": 10000, "grid_n": 80, "naip_px": 1024}},
+     "farfield": {"half_m": 10000, "grid_n": 80, "naip_px": 1024},
+     "superfarfield": {"half_m": 200000, "grid_n": 60, "naip_px": 1024}},
     {"slug": "hermosa_closeup", "title": "Hermosa Beach (close-up)",
      "center": (33.8625476, -118.4019461),
      "half_m": 250, "fine_r": 100,
@@ -399,7 +401,7 @@ def _fetch_naip(slug, center, half_m):
 
 
 def _publish_site(slug, title, md, topo, imagery_file, bbox, focus_radius,
-                  buildings=None, farfield=None):
+                  buildings=None, farfield=None, superfarfield=None):
     """Write the draped snapshot into public/data/<slug>.json for the website.
 
     Mirrors plot_web()'s payload but carries a `title` field and lives in a
@@ -424,41 +426,44 @@ def _publish_site(slug, title, md, topo, imagery_file, bbox, focus_radius,
         out["buildings"] = buildings
     if farfield:
         out["farfield"] = farfield
+    if superfarfield:
+        out["superfarfield"] = superfarfield
     path = SITE_OUT / f"{slug}.json"
     path.write_text(_json.dumps(out))
     extras = f" buildings={len(buildings)}" if buildings else ""
     if farfield:
         extras += f" farfield={farfield['nx']}x{farfield['ny']}"
+    if superfarfield:
+        extras += f" superfarfield={superfarfield['nx']}x{superfarfield['ny']}"
     print(f"  publish_site -> {path.relative_to(ROOT)} (verts={len(out['x'])}{extras})")
 
 
-def _build_farfield(site):
-    """Coarse DEM + low-res NAIP covering a wider extent, as a regular NxN grid.
+def _build_grid_layer(site, cfg, key):
+    """Coarse DEM + low-res imagery over an arbitrary extent, as a regular grid.
 
-    Returns a dict shaped for the site JSON's optional `farfield` key: xs/ys
-    axes, row-major z, bbox, imagery filename. No buildings, no BAMG — the goal
-    is cheap context terrain around the inner detail scene.
+    `cfg` supplies half_m, grid_n, naip_px. `key` is used in cache filenames and
+    the JSON key the viewer looks up. Imagery first tries USGS NAIPPlus; if the
+    extent is too large for NAIP (common past a few hundred km), falls back to
+    Esri's World_Imagery MapServer (global coverage).
     """
-    import math
     import shutil
     import numpy as np
     import requests
     from PIL import Image
 
-    cfg = site["farfield"]
     slug = site["slug"]
     center = site["center"]
-    far_half_m = int(cfg.get("half_m", 10000))
+    half_m = int(cfg.get("half_m", 10000))
     grid_n = int(cfg.get("grid_n", 80))
     naip_px = int(cfg.get("naip_px", 1024))
-    print(f"\n  == far-field for {slug}: half_m={far_half_m} grid={grid_n}x{grid_n} ==")
+    print(f"\n  == {key} for {slug}: half_m={half_m} grid={grid_n}x{grid_n} ==")
 
     out_dir = ROOT / "data" / slug.capitalize()
     out_dir.mkdir(parents=True, exist_ok=True)
-    dem_tif = out_dir / f"{slug}_dem_ff_h{far_half_m}.tif"
-    naip_jpg = out_dir / f"{slug}_naip_ff_h{far_half_m}.jpg"
+    dem_tif = out_dir / f"{slug}_{key}_dem_h{half_m}.tif"
+    img_jpg = out_dir / f"{slug}_{key}_img_h{half_m}.jpg"
 
-    west, south, east, north, mpl, mpa = _wgs84_bbox(*center, far_half_m)
+    west, south, east, north, _, _ = _wgs84_bbox(*center, half_m)
     lat0, lon0 = center
 
     if not (dem_tif.exists() and dem_tif.stat().st_size > 500_000):
@@ -473,12 +478,13 @@ def _build_farfield(site):
             timeout=180)
         r.raise_for_status()
         dem_tif.write_bytes(r.content)
-        print(f"  far-field DEM: {dem_tif} ({len(r.content)} bytes, size={w_px}x{h_px})")
+        print(f"  {key} DEM: {dem_tif} ({len(r.content)} bytes, size={w_px}x{h_px})")
     else:
-        print(f"  cached far-field DEM: {dem_tif}")
+        print(f"  cached {key} DEM: {dem_tif}")
 
-    if not (naip_jpg.exists() and naip_jpg.stat().st_size > 50_000):
+    if not (img_jpg.exists() and img_jpg.stat().st_size > 10_000):
         w_px, h_px = _aspect_size(east, west, north, south, naip_px)
+        content = None
         r = requests.get(
             "https://imagery.nationalmap.gov/arcgis/rest/services/"
             "USGSNAIPPlus/ImageServer/exportImage",
@@ -486,16 +492,29 @@ def _build_farfield(site):
                     "bboxSR": "4326", "imageSR": "4326",
                     "size": f"{w_px},{h_px}", "format": "jpg", "f": "image"},
             timeout=180)
-        r.raise_for_status()
-        if r.content.startswith(b"{"):
-            raise RuntimeError(f"NAIP far-field: {r.content[:200]!r}")
-        naip_jpg.write_bytes(r.content)
-        print(f"  far-field NAIP: {naip_jpg} ({len(r.content)} bytes, size={w_px}x{h_px})")
+        if r.ok and not r.content.startswith(b"{"):
+            content = r.content
+            print(f"  {key} NAIP ok ({len(content)} bytes)")
+        else:
+            print(f"  {key} NAIP unavailable at this extent; falling back to Esri World_Imagery")
+            r2 = requests.get(
+                "https://services.arcgisonline.com/ArcGIS/rest/services/"
+                "World_Imagery/MapServer/export",
+                params={"bbox": f"{west},{south},{east},{north}",
+                        "bboxSR": "4326", "imageSR": "4326",
+                        "size": f"{w_px},{h_px}", "format": "jpg", "f": "image"},
+                timeout=180)
+            r2.raise_for_status()
+            if r2.content.startswith(b"{"):
+                raise RuntimeError(f"{key} imagery fallback failed: {r2.content[:200]!r}")
+            content = r2.content
+            print(f"  {key} Esri ok ({len(content)} bytes)")
+        img_jpg.write_bytes(content)
     else:
-        print(f"  cached far-field NAIP: {naip_jpg}")
+        print(f"  cached {key} imagery: {img_jpg}")
 
     dem = np.array(Image.open(dem_tif), dtype=np.float64)
-    elev_max = site.get("elev_max", 1200)
+    elev_max = site.get(f"{key}_elev_max", 5000)
     bad = ~np.isfinite(dem) | (dem < -200) | (dem > elev_max)
     if bad.any():
         dem[bad] = -10.0
@@ -503,8 +522,8 @@ def _build_farfield(site):
     nrows, ncols = dem.shape
     col_lon = west + (np.arange(ncols) + 0.5) / ncols * (east - west)
     row_lat = north - (np.arange(nrows) + 0.5) / nrows * (north - south)
-    xg = (col_lon - lon0) * mpl
-    yg_td = (row_lat - lat0) * mpa
+    xg = (col_lon - lon0) * mpl_at(lat0)
+    yg_td = (row_lat - lat0) * 110540.0
     dem_flip = dem[::-1, :]
     yg = yg_td[::-1]
 
@@ -514,10 +533,10 @@ def _build_farfield(site):
     yi = np.clip(((ys - yg[0]) / (yg[-1] - yg[0]) * (nrows - 1)).round().astype(int), 0, nrows - 1)
     zz = dem_flip[np.ix_(yi, xi)]
     zz = np.where(zz < 1.0, -5.0, zz)
-    print(f"  far-field z: min={zz.min():.1f} max={zz.max():.1f} mean={zz.mean():.1f}")
+    print(f"  {key} z: min={zz.min():.1f} max={zz.max():.1f} mean={zz.mean():.1f}")
 
-    naip_pub = SITE_OUT / f"{slug}_farfield_naip.jpg"
-    shutil.copyfile(naip_jpg, naip_pub)
+    img_pub = SITE_OUT / f"{slug}_{key}_img.jpg"
+    shutil.copyfile(img_jpg, img_pub)
 
     return {
         "nx": grid_n,
@@ -526,8 +545,13 @@ def _build_farfield(site):
         "ys": [round(float(v), 1) for v in ys],
         "z": [round(float(v), 2) for v in zz.flatten()],
         "bbox": [float(xs[0]), float(ys[0]), float(xs[-1]), float(ys[-1])],
-        "imagery": f"{slug}_farfield_naip.jpg",
+        "imagery": f"{slug}_{key}_img.jpg",
     }
+
+
+def mpl_at(lat):
+    import math
+    return 110540.0 * math.cos(math.radians(lat))
 
 
 def _build_site(site):
@@ -620,10 +644,11 @@ def _build_site(site):
         hag_pkg = _fetch_hag_raster(slug, center, half_m)
         _apply_lidar_heights(buildings, center, hag_pkg)
         buildings = _trim_buildings(buildings)
-    farfield = _build_farfield(site) if site.get("farfield") else None
+    farfield = _build_grid_layer(site, site["farfield"], "farfield") if site.get("farfield") else None
+    superfarfield = _build_grid_layer(site, site["superfarfield"], "superfarfield") if site.get("superfarfield") else None
     _publish_site(slug, title, md, topo, f"{slug}_naip.jpg",
                   [xmin, ymin, xmax, ymax], site["focus_radius"],
-                  buildings=buildings, farfield=farfield)
+                  buildings=buildings, farfield=farfield, superfarfield=superfarfield)
 
 
 def _step_for(site):

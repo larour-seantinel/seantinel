@@ -39,7 +39,7 @@ function initScene() {
   scene.background = makeSkyTexture();
   camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1e7);
   camera.up.set(0, 0, 1);
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true });
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio);
   const resize = () => {
     const w = canvas.clientWidth || window.innerWidth;
@@ -53,9 +53,15 @@ function initScene() {
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.maxPolarAngle = (85 * Math.PI) / 180;
+  controls.minDistance = 20;
+  controls.maxDistance = 4000;
 
   (function tick() {
     controls.update();
+    const camDist = camera.position.distanceTo(controls.target);
+    camera.near = Math.max(camDist * 0.1, 1);
+    camera.far = Math.max(camDist * 50, 10000);
+    camera.updateProjectionMatrix();
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
   })();
@@ -279,19 +285,26 @@ function buildBuildings(s) {
   scene.add(mesh);
 }
 
-// Far-field ring: regular NxN grid draped with low-res NAIP. Sunk 1 m under
-// the inner terrain so there is no z-fight where they overlap — the inner mesh
-// wins by depth test. A clean rectangular hole is cut matching the inner bbox:
-// cells with any strictly-interior vertex are dropped, so no coastal "flaps"
-// poke past the inner mesh's edge into the water.
-function buildFarfield(s) {
-  if (!s.farfield) return;
-  const ff = s.farfield;
-  const nx = ff.nx, ny = ff.ny;
-  const xs = ff.xs, ys = ff.ys, z = ff.z;
-  const [xmin, ymin, xmax, ymax] = ff.bbox;
+// Coarse grid layer draped with its own low-res texture. Sunk `sinkM` meters
+// under whatever is covering it so inner meshes win by depth test. Hole-cut
+// rule: cull a cell only if it both overlaps the (shrunk) hole AND has any
+// dry-land corner. All-ocean cells in the hole are kept so the water plane
+// hides them, closing the ocean-side seam gap. The hole is shrunk by one cell
+// width (capped at a quarter of the hole width) so the kept-cell edge lands
+// at the inner-mesh edge instead of one cell past it.
+function buildGridLayer(layer, holeBbox, sinkM) {
+  if (!layer) return;
+  const nx = layer.nx, ny = layer.ny;
+  const xs = layer.xs, ys = layer.ys, z = layer.z;
+  const [xmin, ymin, xmax, ymax] = layer.bbox;
   const xspan = xmax - xmin, yspan = ymax - ymin;
-  const [ixmin, iymin, ixmax, iymax] = s.bbox;
+  const [ixmin, iymin, ixmax, iymax] = holeBbox;
+  const cellX = (xs[nx - 1] - xs[0]) / (nx - 1);
+  const cellY = (ys[ny - 1] - ys[0]) / (ny - 1);
+  const shrinkX = Math.min(cellX, (ixmax - ixmin) * 0.25);
+  const shrinkY = Math.min(cellY, (iymax - iymin) * 0.25);
+  const hxmin = ixmin + shrinkX, hxmax = ixmax - shrinkX;
+  const hymin = iymin + shrinkY, hymax = iymax - shrinkY;
 
   const positions = new Float32Array(nx * ny * 3);
   const uvs = new Float32Array(nx * ny * 2);
@@ -300,17 +313,20 @@ function buildFarfield(s) {
       const k = j * nx + i;
       positions[3 * k + 0] = xs[i];
       positions[3 * k + 1] = ys[j];
-      positions[3 * k + 2] = z[k] * Z_EXAG - 1;
+      positions[3 * k + 2] = z[k] * Z_EXAG - sinkM;
       uvs[2 * k + 0] = (xs[i] - xmin) / xspan;
       uvs[2 * k + 1] = (ys[j] - ymin) / yspan;
     }
   }
-  const inside = (i, j) =>
-    xs[i] > ixmin && xs[i] < ixmax && ys[j] > iymin && ys[j] < iymax;
+  const inHole = (i, j) =>
+    xs[i] > hxmin && xs[i] < hxmax && ys[j] > hymin && ys[j] < hymax;
+  const isLand = (i, j) => z[j * nx + i] > 0;
   const tris = [];
   for (let j = 0; j < ny - 1; j++) {
     for (let i = 0; i < nx - 1; i++) {
-      if (inside(i, j) || inside(i + 1, j) || inside(i, j + 1) || inside(i + 1, j + 1)) continue;
+      const anyInHole = inHole(i, j) || inHole(i + 1, j) || inHole(i, j + 1) || inHole(i + 1, j + 1);
+      const anyLand = isLand(i, j) || isLand(i + 1, j) || isLand(i, j + 1) || isLand(i + 1, j + 1);
+      if (anyInHole && anyLand) continue;
       const a = j * nx + i;
       const b = j * nx + i + 1;
       const c = (j + 1) * nx + i;
@@ -323,7 +339,7 @@ function buildFarfield(s) {
   geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
   geom.setIndex(new THREE.BufferAttribute(idx, 1));
-  const tex = new THREE.TextureLoader().load('data/' + ff.imagery);
+  const tex = new THREE.TextureLoader().load('data/' + layer.imagery);
   tex.colorSpace = THREE.SRGBColorSpace;
   const mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
   const mesh = new THREE.Mesh(geom, mat);
@@ -331,7 +347,9 @@ function buildFarfield(s) {
 }
 
 function buildWater(s) {
-  const bbox = (s.farfield && s.farfield.bbox) || s.bbox;
+  const bbox = (s.superfarfield && s.superfarfield.bbox)
+            || (s.farfield && s.farfield.bbox)
+            || s.bbox;
   const [xmin, ymin, xmax, ymax] = bbox;
   const w = xmax - xmin, h = ymax - ymin;
   const geom = new THREE.PlaneGeometry(w * 5, h * 5);
@@ -351,11 +369,6 @@ function frameCamera(s) {
     target.y - camDist * Math.cos(elRad),
     target.z + camDist * Math.sin(elRad),
   );
-  const [xmin, ymin, xmax, ymax] = s.bbox;
-  const maxDim = Math.max(xmax - xmin, ymax - ymin);
-  camera.near = Math.max(focusR * 1e-2, 0.1);
-  camera.far = maxDim * 100;
-  camera.updateProjectionMatrix();
   camera.lookAt(target);
   controls.target.copy(target);
   controls.update();
@@ -422,7 +435,8 @@ async function main() {
   const label = snap.title || slug;
   titleEl.textContent = `${label} · sea level`;
   document.title = `Seantinel · ${label}`;
-  buildFarfield(snap);
+  if (snap.superfarfield) buildGridLayer(snap.superfarfield, snap.farfield?.bbox || snap.bbox, 2);
+  if (snap.farfield) buildGridLayer(snap.farfield, snap.bbox, 1);
   buildTerrain(snap);
   buildWater(snap);
   buildBuildings(snap);
