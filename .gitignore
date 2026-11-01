@@ -8,6 +8,7 @@ build-tmp/
 
 # Session-local scratch
 claudeproject
+Letter/
 
 # Data / outputs (future dirs)
 data/
