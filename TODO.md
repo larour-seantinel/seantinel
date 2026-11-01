@@ -8,6 +8,7 @@ Shipped work moved to [DONE.md](DONE.md). Pull in on demand.
 
 ## Next Up — Seantinel core
 
+- **Land/ocean domain mask per site via `.exp` polygon.** Right now DEM elevations below a threshold are blanket-sunk to -5 m, which treats "truly ocean" and "coastal low-lying land" identically. For sites where the inner box straddles the shoreline (Mar del Plata is the trigger — center was on the beach, half the tile was open Atlantic rendered as uniform water), the result looks fine but doesn't *know* what's water. We want: an `ocean.exp` polygon (optional, per-site) that marks where ocean is allowed; outside the polygon, no vertex ever drops below sea level even if the DEM says so. Also usable for the farfield grid-layer cull. Pipeline: load `.exp` with ISSM `expread`, test each mesh vertex / farfield cell with a point-in-polygon, override z accordingly.
 - **Multi-tile HAG mosaicing for 5 km+ boxes.** Current pipeline grabs `items[0]` from `3dep-lidar-hag` STAC search, which is one ~8×3 km tile. Hermosa gets 70% coverage, Redondo only 32% (rest default to 7 m). Fetch all overlapping items, build an in-memory mosaic keyed by UTM extent, then look up per-building height.
 - Take pictures of Long Beach, Torrance, Redondo and Hermosa Beach.
 - Generate QR codes for existing sites (`site.html?loc=hermosa` / `?loc=redondo` / `?loc=hermosa_closeup`). URL shape is already settled on slug.

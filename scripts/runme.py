@@ -125,6 +125,15 @@ SITES = [
      "half_m": 250, "fine_r": 100,
      "focus_radius": 60.0, "elev_max": 500,
      "hmin": 2.0, "hmax": 30.0, "buildings": True},
+    # Non-CONUS: Copernicus GLO-30 DSM + Esri World_Imagery, OSM buildings
+    # with no lidar HAG (falls back to OSM tag heights / 7 m default).
+    # Super-far skipped — would need a mosaic of ~16 GLO-30 tiles.
+    {"slug": "mardelplata", "title": "Mar del Plata",
+     "center": (-37.9734483, -57.5423292),
+     "half_m": 2500, "fine_r": 500,
+     "focus_radius": 150.0, "elev_max": 500,
+     "buildings": True,
+     "farfield": {"half_m": 10000, "grid_n": 80, "naip_px": 1024}},
 ]
 
 
@@ -152,12 +161,25 @@ def _aspect_size(east, west, north, south, long_px):
     return int(round(long_px * aspect)), long_px
 
 
-def _fetch_dem(slug, center, half_m):
+def _in_conus(center):
+    lat, lon = center
+    return (24.0 <= lat <= 50.0) and (-125.0 <= lon <= -66.0)
+
+
+def _fetch_dem(slug, center, half_m, out_name=None):
+    """Dispatch: 3DEP for CONUS, Copernicus GLO-30 elsewhere."""
+    name = out_name or f"{slug}_dem_h{int(half_m)}.tif"
+    if _in_conus(center):
+        return _fetch_dem_3dep(slug, center, half_m, name)
+    return _fetch_dem_copernicus(slug, center, half_m, name)
+
+
+def _fetch_dem_3dep(slug, center, half_m, out_name):
     """USGS 3DEP DEM via ExportImage (CONUS, no auth). Cache keyed by extent."""
     import requests
     out_dir = ROOT / "data" / slug.capitalize()
     out_dir.mkdir(parents=True, exist_ok=True)
-    tif = out_dir / f"{slug}_dem_h{int(half_m)}.tif"
+    tif = out_dir / out_name
     if tif.exists() and tif.stat().st_size > 1_000_000:
         print(f"  cached DEM: {tif} ({tif.stat().st_size} bytes)")
         return tif
@@ -175,6 +197,52 @@ def _fetch_dem(slug, center, half_m):
     r.raise_for_status()
     tif.write_bytes(r.content)
     print(f"  fetched DEM: {tif} ({len(r.content)} bytes, size={w_px}x{h_px})")
+    return tif
+
+
+def _fetch_dem_copernicus(slug, center, half_m, out_name):
+    """Copernicus GLO-30 DSM via Planetary Computer STAC. Global, 30 m.
+
+    One 1°×1° tile covers up to a ~50 km half-extent at mid-latitudes, so a
+    single `items[0]` is enough for all current site sizes. Downloads the full
+    tile once (~50 MB), then uses gdal_translate -projwin to crop to our bbox.
+    """
+    import requests, subprocess
+    out_dir = ROOT / "data" / slug.capitalize()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tif = out_dir / out_name
+    if tif.exists() and tif.stat().st_size > 10_000:
+        print(f"  cached DEM: {tif} ({tif.stat().st_size} bytes)")
+        return tif
+    west, south, east, north, _, _ = _wgs84_bbox(*center, half_m)
+
+    r = requests.post(
+        "https://planetarycomputer.microsoft.com/api/stac/v1/search",
+        json={"collections": ["cop-dem-glo-30"],
+              "bbox": [west, south, east, north], "limit": 5},
+        timeout=60)
+    r.raise_for_status()
+    items = r.json().get("features", [])
+    if not items:
+        raise RuntimeError(f"No Copernicus GLO-30 coverage for {west},{south},{east},{north}")
+    item = items[0]
+    tile_id = item["id"]
+    raw = out_dir / f"{tile_id}.tif"
+    if not (raw.exists() and raw.stat().st_size > 1_000_000):
+        sign = requests.get(
+            "https://planetarycomputer.microsoft.com/api/sas/v1/sign",
+            params={"href": item["assets"]["data"]["href"]},
+            timeout=60).json()
+        raw.write_bytes(requests.get(sign["href"], timeout=240).content)
+        print(f"  fetched Copernicus tile: {raw.name} ({raw.stat().st_size} bytes)")
+    subprocess.run(
+        ["gdal_translate", "-q",
+         "-projwin", str(west), str(north), str(east), str(south),
+         "-projwin_srs", "EPSG:4326",
+         "-co", "COMPRESS=NONE",
+         str(raw), str(tif)],
+        check=True)
+    print(f"  cropped DEM: {tif} ({tif.stat().st_size} bytes)")
     return tif
 
 
@@ -373,17 +441,34 @@ def _trim_buildings(buildings, min_area_m2=20.0):
     return out
 
 
-def _fetch_naip(slug, center, half_m):
+def _fetch_naip(slug, center, half_m, out_name=None, px=4000):
+    """Dispatch: NAIPPlus for CONUS, Esri World_Imagery elsewhere.
+
+    Esri's arcgisonline export caps at ~2048 before gateway-timing out on
+    inner-tile requests at this latency — keep it conservative.
+    """
+    name = out_name or f"{slug}_naip_h{int(half_m)}.jpg"
+    esri_px = min(px, 2048)
+    if _in_conus(center):
+        try:
+            return _fetch_naip_usgs(slug, center, half_m, name, px)
+        except RuntimeError as ex:
+            print(f"  NAIP failed ({ex}); falling back to Esri World_Imagery")
+            return _fetch_imagery_esri(slug, center, half_m, name, esri_px)
+    return _fetch_imagery_esri(slug, center, half_m, name, esri_px)
+
+
+def _fetch_naip_usgs(slug, center, half_m, out_name, px=4000):
     """USGS NAIPPlus 1m aerial via ExportImage. Cache keyed by extent."""
     import requests
     out_dir = ROOT / "data" / slug.capitalize()
     out_dir.mkdir(parents=True, exist_ok=True)
-    jpg = out_dir / f"{slug}_naip_h{int(half_m)}.jpg"
+    jpg = out_dir / out_name
     if jpg.exists() and jpg.stat().st_size > 50_000:
         print(f"  cached imagery: {jpg} ({jpg.stat().st_size} bytes)")
         return jpg
     west, south, east, north, _, _ = _wgs84_bbox(*center, half_m)
-    w_px, h_px = _aspect_size(east, west, north, south, 4000)
+    w_px, h_px = _aspect_size(east, west, north, south, px)
     url = ("https://imagery.nationalmap.gov/arcgis/rest/services/"
            "USGSNAIPPlus/ImageServer/exportImage")
     params = {
@@ -397,6 +482,33 @@ def _fetch_naip(slug, center, half_m):
         raise RuntimeError(f"NAIP returned JSON error: {r.content[:200]!r}")
     jpg.write_bytes(r.content)
     print(f"  fetched imagery: {jpg} ({len(r.content)} bytes, size={w_px}x{h_px})")
+    return jpg
+
+
+def _fetch_imagery_esri(slug, center, half_m, out_name, px=4000):
+    """Esri World_Imagery via arcgisonline ExportImage. Global, no auth."""
+    import requests
+    out_dir = ROOT / "data" / slug.capitalize()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    jpg = out_dir / out_name
+    if jpg.exists() and jpg.stat().st_size > 50_000:
+        print(f"  cached imagery: {jpg} ({jpg.stat().st_size} bytes)")
+        return jpg
+    west, south, east, north, _, _ = _wgs84_bbox(*center, half_m)
+    w_px, h_px = _aspect_size(east, west, north, south, px)
+    url = ("https://services.arcgisonline.com/ArcGIS/rest/services/"
+           "World_Imagery/MapServer/export")
+    params = {
+        "bbox": f"{west},{south},{east},{north}",
+        "bboxSR": "4326", "imageSR": "4326",
+        "size": f"{w_px},{h_px}", "format": "jpg", "f": "image",
+    }
+    r = requests.get(url, params=params, timeout=120)
+    r.raise_for_status()
+    if r.content.startswith(b"{"):
+        raise RuntimeError(f"Esri imagery returned JSON error: {r.content[:200]!r}")
+    jpg.write_bytes(r.content)
+    print(f"  fetched Esri imagery: {jpg} ({len(r.content)} bytes, size={w_px}x{h_px})")
     return jpg
 
 
@@ -442,13 +554,11 @@ def _build_grid_layer(site, cfg, key):
     """Coarse DEM + low-res imagery over an arbitrary extent, as a regular grid.
 
     `cfg` supplies half_m, grid_n, naip_px. `key` is used in cache filenames and
-    the JSON key the viewer looks up. Imagery first tries USGS NAIPPlus; if the
-    extent is too large for NAIP (common past a few hundred km), falls back to
-    Esri's World_Imagery MapServer (global coverage).
+    the JSON key the viewer looks up. DEM + imagery sources dispatch on CONUS vs
+    global (3DEP/NAIPPlus vs Copernicus/Esri) through `_fetch_dem`/`_fetch_naip`.
     """
     import shutil
     import numpy as np
-    import requests
     from PIL import Image
 
     slug = site["slug"]
@@ -458,60 +568,14 @@ def _build_grid_layer(site, cfg, key):
     naip_px = int(cfg.get("naip_px", 1024))
     print(f"\n  == {key} for {slug}: half_m={half_m} grid={grid_n}x{grid_n} ==")
 
-    out_dir = ROOT / "data" / slug.capitalize()
-    out_dir.mkdir(parents=True, exist_ok=True)
-    dem_tif = out_dir / f"{slug}_{key}_dem_h{half_m}.tif"
-    img_jpg = out_dir / f"{slug}_{key}_img_h{half_m}.jpg"
-
     west, south, east, north, _, _ = _wgs84_bbox(*center, half_m)
     lat0, lon0 = center
 
-    if not (dem_tif.exists() and dem_tif.stat().st_size > 500_000):
-        w_px, h_px = _aspect_size(east, west, north, south, 1000)
-        r = requests.get(
-            "https://elevation.nationalmap.gov/arcgis/rest/services/"
-            "3DEPElevation/ImageServer/exportImage",
-            params={"bbox": f"{west},{south},{east},{north}",
-                    "bboxSR": "4326", "imageSR": "4326",
-                    "size": f"{w_px},{h_px}", "format": "tiff",
-                    "pixelType": "F32", "f": "image"},
-            timeout=180)
-        r.raise_for_status()
-        dem_tif.write_bytes(r.content)
-        print(f"  {key} DEM: {dem_tif} ({len(r.content)} bytes, size={w_px}x{h_px})")
-    else:
-        print(f"  cached {key} DEM: {dem_tif}")
-
-    if not (img_jpg.exists() and img_jpg.stat().st_size > 10_000):
-        w_px, h_px = _aspect_size(east, west, north, south, naip_px)
-        content = None
-        r = requests.get(
-            "https://imagery.nationalmap.gov/arcgis/rest/services/"
-            "USGSNAIPPlus/ImageServer/exportImage",
-            params={"bbox": f"{west},{south},{east},{north}",
-                    "bboxSR": "4326", "imageSR": "4326",
-                    "size": f"{w_px},{h_px}", "format": "jpg", "f": "image"},
-            timeout=180)
-        if r.ok and not r.content.startswith(b"{"):
-            content = r.content
-            print(f"  {key} NAIP ok ({len(content)} bytes)")
-        else:
-            print(f"  {key} NAIP unavailable at this extent; falling back to Esri World_Imagery")
-            r2 = requests.get(
-                "https://services.arcgisonline.com/ArcGIS/rest/services/"
-                "World_Imagery/MapServer/export",
-                params={"bbox": f"{west},{south},{east},{north}",
-                        "bboxSR": "4326", "imageSR": "4326",
-                        "size": f"{w_px},{h_px}", "format": "jpg", "f": "image"},
-                timeout=180)
-            r2.raise_for_status()
-            if r2.content.startswith(b"{"):
-                raise RuntimeError(f"{key} imagery fallback failed: {r2.content[:200]!r}")
-            content = r2.content
-            print(f"  {key} Esri ok ({len(content)} bytes)")
-        img_jpg.write_bytes(content)
-    else:
-        print(f"  cached {key} imagery: {img_jpg}")
+    dem_tif = _fetch_dem(slug, center, half_m,
+                        out_name=f"{slug}_{key}_dem_h{half_m}.tif")
+    img_jpg = _fetch_naip(slug, center, half_m,
+                         out_name=f"{slug}_{key}_img_h{half_m}.jpg",
+                         px=naip_px)
 
     dem = np.array(Image.open(dem_tif), dtype=np.float64)
     elev_max = site.get(f"{key}_elev_max", 5000)
