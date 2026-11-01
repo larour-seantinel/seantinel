@@ -37,7 +37,7 @@ function makeSkyTexture() {
 function initScene() {
   scene = new THREE.Scene();
   scene.background = makeSkyTexture();
-  camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1e7);
+  camera = new THREE.PerspectiveCamera(45, 1, 0.5, 50000);
   camera.up.set(0, 0, 1);
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio);
@@ -58,10 +58,6 @@ function initScene() {
 
   (function tick() {
     controls.update();
-    const camDist = camera.position.distanceTo(controls.target);
-    camera.near = Math.max(camDist * 0.1, 1);
-    camera.far = Math.max(camDist * 50, 10000);
-    camera.updateProjectionMatrix();
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
   })();
