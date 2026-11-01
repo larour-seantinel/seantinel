@@ -109,11 +109,13 @@ SITES = [
     {"slug": "hermosa", "title": "Hermosa Beach",
      "center": (33.8625476, -118.4019461),
      "half_m": 2500, "fine_r": 500,
-     "focus_radius": 150.0, "elev_max": 500},
+     "focus_radius": 150.0, "elev_max": 500,
+     "buildings": True},
     {"slug": "redondo", "title": "Redondo Beach",
      "center": (33.8382488, -118.3907496),
      "half_m": 2500, "fine_r": 500,
-     "focus_radius": 150.0, "elev_max": 500},
+     "focus_radius": 150.0, "elev_max": 500,
+     "buildings": True},
     {"slug": "hermosa_closeup", "title": "Hermosa Beach (close-up)",
      "center": (33.8625476, -118.4019461),
      "half_m": 250, "fine_r": 100,
@@ -260,10 +262,14 @@ def _apply_lidar_heights(buildings, center, hag_pkg):
         if mask.sum() == 0:
             continue
         vals = hag[r_lo:r_hi, c_lo:c_hi][mask]
-        vals = vals[vals > 0.5]
+        # Lidar HAG has outliers: antennas, overhanging trees, bounce artifacts
+        # (raster max for Hermosa is 287 m). Cap at 40 m — residential/coastal
+        # LA tops out well below that — and use median instead of p95 so a
+        # couple of bad pixels can't dominate a polygon with hundreds of hits.
+        vals = vals[(vals > 0.5) & (vals < 40.0)]
         if len(vals) < 2:
             continue
-        b["h"] = float(np.percentile(vals, 95))
+        b["h"] = float(np.median(vals))
         hits += 1
     print(f"  lidar heights: {hits}/{len(buildings)} buildings")
 
@@ -329,6 +335,38 @@ def _fetch_osm_buildings(slug, center, half_m, mpl, mpa):
         buildings.append({"ring": ring, "h": h})
     print(f"  OSM buildings: {len(buildings)} polygons")
     return buildings
+
+
+def _trim_buildings(buildings, min_area_m2=20.0):
+    """Drop sheds/clutter, strip duplicate close-point, round coords to 0.1 m.
+
+    Shoelace area filter removes garages, sheds, pool houses — low signal for a
+    5 km coastal viewer and a big chunk of the JSON payload. Rounding caps JSON
+    precision at 10 cm (plenty for city viz) and gzips better.
+    """
+    out = []
+    kept_coords = 0
+    for b in buildings:
+        ring = b["ring"]
+        if len(ring) >= 2 and ring[0] == ring[-1]:
+            ring = ring[:-1]
+        if len(ring) < 3:
+            continue
+        # Shoelace area (abs).
+        a2 = 0.0
+        for i in range(len(ring)):
+            x0, y0 = ring[i]
+            x1, y1 = ring[(i + 1) % len(ring)]
+            a2 += x0 * y1 - x1 * y0
+        area = abs(a2) * 0.5
+        if area < min_area_m2:
+            continue
+        ring = [[round(p[0], 1), round(p[1], 1)] for p in ring]
+        out.append({"ring": ring, "h": round(b.get("h", 7.0), 1)})
+        kept_coords += len(ring)
+    print(f"  trimmed buildings: {len(out)}/{len(buildings)} "
+          f"(min_area={min_area_m2} m², avg ring={kept_coords/max(len(out),1):.1f})")
+    return out
 
 
 def _fetch_naip(slug, center, half_m):
@@ -477,6 +515,7 @@ def _build_site(site):
         buildings = _fetch_osm_buildings(slug, center, half_m, mpl, mpa)
         hag_pkg = _fetch_hag_raster(slug, center, half_m)
         _apply_lidar_heights(buildings, center, hag_pkg)
+        buildings = _trim_buildings(buildings)
     _publish_site(slug, title, md, topo, f"{slug}_naip.jpg",
                   [xmin, ymin, xmax, ymax], site["focus_radius"],
                   buildings=buildings)

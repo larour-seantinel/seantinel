@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
-const Z_EXAG = 5;
+const Z_EXAG = 1;
 
 const statusEl = document.getElementById('status');
 const titleEl = document.getElementById('site-title');
@@ -162,51 +162,121 @@ function buildMarker(s) {
   scene.add(markerGroup);
 }
 
-// Max nearest-neighbor terrain z over a polygon's vertices. Flat polygon sits
-// at this height + a small lift, so no part of it dips below the terrain on
-// gently sloped ground.
-function maxGroundZOverRing(s, ring) {
-  let maxZ = -Infinity;
-  for (const [px, py] of ring) {
-    const z = groundZAt(s, px, py);
-    if (z > maxZ) maxZ = z;
-  }
-  return maxZ;
-}
-
-function buildBuildings(s) {
-  if (!s.buildings || !s.buildings.length) return;
-  const group = new THREE.Group();
+// Precompute a regular grid of ground-Z over the mesh bbox. Nearest-neighbor
+// lookup from (x,y) is O(1) instead of O(n_mesh_verts) per building vertex.
+function buildGroundGrid(s, nx = 128, ny = 128) {
   const [xmin, ymin, xmax, ymax] = s.bbox;
   const xspan = xmax - xmin, yspan = ymax - ymin;
-  const mat = new THREE.MeshBasicMaterial({ map: naipTexture });
-  const LIFT_M = 0.3;
-  for (const b of s.buildings) {
-    const ring = b.ring, h = b.h || 7;
-    if (ring.length < 3) continue;
-    const shape = new THREE.Shape();
-    shape.moveTo(ring[0][0], ring[0][1]);
-    for (let i = 1; i < ring.length; i++) {
-      shape.lineTo(ring[i][0], ring[i][1]);
+  const grid = new Float32Array(nx * ny);
+  const bestD = new Float32Array(nx * ny).fill(Infinity);
+  grid.fill(-5);
+  for (let i = 0; i < s.x.length; i++) {
+    const ix = Math.min(nx - 1, Math.max(0, Math.floor((s.x[i] - xmin) / xspan * nx)));
+    const iy = Math.min(ny - 1, Math.max(0, Math.floor((s.y[i] - ymin) / yspan * ny)));
+    const k = iy * nx + ix;
+    // Keep the max-z vertex that falls in the cell (building sits on highest
+    // nearby ground so wall never pokes through terrain).
+    if (s.field[i] > grid[k] || bestD[k] === Infinity) {
+      grid[k] = s.field[i];
+      bestD[k] = 0;
     }
-    const geom = new THREE.ExtrudeGeometry(shape, {
-      depth: h, bevelEnabled: false,
-    });
-    // Planar top-down UVs: rooftop gets its real NAIP pixels, walls get the
-    // column of texture at their (x,y) — the roof extruded downward.
-    const pos = geom.attributes.position;
-    const uvs = new Float32Array(pos.count * 2);
-    for (let i = 0; i < pos.count; i++) {
-      uvs[2 * i + 0] = (pos.getX(i) - xmin) / xspan;
-      uvs[2 * i + 1] = (pos.getY(i) - ymin) / yspan;
-    }
-    geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-    const mesh = new THREE.Mesh(geom, mat);
-    const groundZ = maxGroundZOverRing(s, ring);
-    mesh.position.z = (groundZ + LIFT_M) * Z_EXAG;
-    group.add(mesh);
   }
-  scene.add(group);
+  return { grid, nx, ny, xmin, ymin, xspan, yspan };
+}
+
+function groundZFromGrid(g, x, y) {
+  const ix = Math.min(g.nx - 1, Math.max(0, Math.floor((x - g.xmin) / g.xspan * g.nx)));
+  const iy = Math.min(g.ny - 1, Math.max(0, Math.floor((y - g.ymin) / g.yspan * g.ny)));
+  return g.grid[iy * g.nx + ix];
+}
+
+// Build one merged BufferGeometry across all buildings — one draw call, one
+// construction pass. Walls are quads along each polygon edge; roof is the
+// polygon triangulated via Three.js earcut (ShapeUtils.triangulateShape).
+function buildBuildings(s) {
+  if (!s.buildings || !s.buildings.length) return;
+  const [xmin, ymin, xmax, ymax] = s.bbox;
+  const xspan = xmax - xmin, yspan = ymax - ymin;
+  const groundGrid = buildGroundGrid(s);
+  const LIFT_M = 0.3;
+
+  // Pre-count so we can allocate typed arrays once.
+  let totalVerts = 0, totalTris = 0;
+  const prepped = [];
+  for (const b of s.buildings) {
+    let ring = b.ring;
+    if (!ring || ring.length < 3) continue;
+    let n = ring.length;
+    // Drop trailing duplicate close-point if OSM shipped one.
+    const first = ring[0], last = ring[n - 1];
+    if (first[0] === last[0] && first[1] === last[1]) n--;
+    if (n < 3) continue;
+    const contour = [];
+    let cx = 0, cy = 0;
+    for (let i = 0; i < n; i++) {
+      contour.push(new THREE.Vector2(ring[i][0], ring[i][1]));
+      cx += ring[i][0]; cy += ring[i][1];
+    }
+    cx /= n; cy /= n;
+    const tris = THREE.ShapeUtils.triangulateShape(contour, []);
+    if (tris.length === 0) continue;
+    prepped.push({ contour, tris, cx, cy, h: b.h || 7 });
+    totalVerts += n * 4 + n;    // wall quads (4 verts each) + roof ring verts
+    totalTris  += n * 2 + tris.length;
+  }
+
+  const positions = new Float32Array(totalVerts * 3);
+  const uvs = new Float32Array(totalVerts * 2);
+  const indices = new Uint32Array(totalTris * 3);
+  let pi = 0, ui = 0, ii = 0, vi = 0;
+
+  for (const b of prepped) {
+    const { contour, tris, cx, cy, h } = b;
+    const n = contour.length;
+    const groundZ = (groundZFromGrid(groundGrid, cx, cy) + LIFT_M) * Z_EXAG;
+    const topZ = groundZ + h;
+
+    // Walls: one quad per edge.
+    for (let i = 0; i < n; i++) {
+      const a = contour[i], c = contour[(i + 1) % n];
+      const ua = (a.x - xmin) / xspan, va = (a.y - ymin) / yspan;
+      const uc = (c.x - xmin) / xspan, vc = (c.y - ymin) / yspan;
+      positions[pi++] = a.x; positions[pi++] = a.y; positions[pi++] = groundZ;
+      positions[pi++] = c.x; positions[pi++] = c.y; positions[pi++] = groundZ;
+      positions[pi++] = c.x; positions[pi++] = c.y; positions[pi++] = topZ;
+      positions[pi++] = a.x; positions[pi++] = a.y; positions[pi++] = topZ;
+      uvs[ui++] = ua; uvs[ui++] = va;
+      uvs[ui++] = uc; uvs[ui++] = vc;
+      uvs[ui++] = uc; uvs[ui++] = vc;
+      uvs[ui++] = ua; uvs[ui++] = va;
+      indices[ii++] = vi;     indices[ii++] = vi + 1; indices[ii++] = vi + 2;
+      indices[ii++] = vi;     indices[ii++] = vi + 2; indices[ii++] = vi + 3;
+      vi += 4;
+    }
+
+    // Roof: shared ring verts at topZ, triangulated by earcut.
+    const roofStart = vi;
+    for (let i = 0; i < n; i++) {
+      const p = contour[i];
+      positions[pi++] = p.x; positions[pi++] = p.y; positions[pi++] = topZ;
+      uvs[ui++] = (p.x - xmin) / xspan;
+      uvs[ui++] = (p.y - ymin) / yspan;
+      vi++;
+    }
+    for (const t of tris) {
+      indices[ii++] = roofStart + t[0];
+      indices[ii++] = roofStart + t[1];
+      indices[ii++] = roofStart + t[2];
+    }
+  }
+
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geom.setIndex(new THREE.BufferAttribute(indices, 1));
+  const mat = new THREE.MeshBasicMaterial({ map: naipTexture });
+  const mesh = new THREE.Mesh(geom, mat);
+  scene.add(mesh);
 }
 
 function buildWater(s) {
