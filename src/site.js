@@ -279,10 +279,56 @@ function buildBuildings(s) {
   scene.add(mesh);
 }
 
+// Far-field ring: regular NxN grid draped with low-res NAIP. Sunk 1 m under
+// the inner terrain so there is no z-fight where they overlap — the inner mesh
+// wins by depth test.
+function buildFarfield(s) {
+  if (!s.farfield) return;
+  const ff = s.farfield;
+  const nx = ff.nx, ny = ff.ny;
+  const xs = ff.xs, ys = ff.ys, z = ff.z;
+  const [xmin, ymin, xmax, ymax] = ff.bbox;
+  const xspan = xmax - xmin, yspan = ymax - ymin;
+
+  const positions = new Float32Array(nx * ny * 3);
+  const uvs = new Float32Array(nx * ny * 2);
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      const k = j * nx + i;
+      positions[3 * k + 0] = xs[i];
+      positions[3 * k + 1] = ys[j];
+      positions[3 * k + 2] = z[k] * Z_EXAG - 1;
+      uvs[2 * k + 0] = (xs[i] - xmin) / xspan;
+      uvs[2 * k + 1] = (ys[j] - ymin) / yspan;
+    }
+  }
+  const idx = new Uint32Array((nx - 1) * (ny - 1) * 6);
+  let ii = 0;
+  for (let j = 0; j < ny - 1; j++) {
+    for (let i = 0; i < nx - 1; i++) {
+      const a = j * nx + i;
+      const b = j * nx + i + 1;
+      const c = (j + 1) * nx + i;
+      const d = (j + 1) * nx + i + 1;
+      idx[ii++] = a; idx[ii++] = b; idx[ii++] = d;
+      idx[ii++] = a; idx[ii++] = d; idx[ii++] = c;
+    }
+  }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geom.setIndex(new THREE.BufferAttribute(idx, 1));
+  const tex = new THREE.TextureLoader().load('data/' + ff.imagery);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(geom, mat);
+  scene.add(mesh);
+}
+
 function buildWater(s) {
-  const [xmin, ymin, xmax, ymax] = s.bbox;
+  const bbox = (s.farfield && s.farfield.bbox) || s.bbox;
+  const [xmin, ymin, xmax, ymax] = bbox;
   const w = xmax - xmin, h = ymax - ymin;
-  // Make water 5× larger than terrain so its edge is never visible.
   const geom = new THREE.PlaneGeometry(w * 5, h * 5);
   const mat = new THREE.MeshBasicMaterial({ color: 0x2b7fcf });
   waterMesh = new THREE.Mesh(geom, mat);
@@ -371,6 +417,7 @@ async function main() {
   const label = snap.title || slug;
   titleEl.textContent = `${label} · sea level`;
   document.title = `Seantinel · ${label}`;
+  buildFarfield(snap);
   buildTerrain(snap);
   buildWater(snap);
   buildBuildings(snap);
