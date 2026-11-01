@@ -11,6 +11,7 @@ Live notes. Shipped ISSM native-stack / APK / 3D rendering details live in
 | `adb pair <ip>:<port>` on Samsung One UI fails with `protocol fault / Connection refused` | Samsung's wireless-debugging pairing listener refuses connections from the same device (likely Knox rule). The long-lived adbd port is reachable after granting "Nearby devices" permission to Termux, but pairing itself is blocked. Not fixed by newer adb (37.0.0p1), fresh keys, or loopback | **Parked.** No on-device pairing possible. Use manual Downloads tap-install, or pair from an external device once and copy `~/.android/adbkey*` into Termux | 2026-10-26 |
 | ISSM Restart tests 125/126/129 fail at np=4 — velocities blow up to ~1e4 while TotalSmb/Volume3 OK | Likely restart I/O or MPI-ordering issue; reproduces with runme.py | **Parked.** Not blocking Seantinel; investigate when ISSM native-stack regression testing matters | 2026-10-28 |
 | Visible blue "water bands" between inner mesh / far-field / super-far-field on Hermosa + Redondo | Hole-cut uses "any vertex strictly inside hole bbox" → straddling cells get culled → the next-outer kept cell's edge sits ~one cell-size past the inner-mesh edge. Gap ≈ 160 m at inner↔farfield seam, ≈ 170 m at farfield↔superfar seam. | **Fixed (ocean side).** Hole-cut now culls a cell only when it both overlaps the (shrunk) hole AND has at least one dry-land corner. Hole shrunk by one cell width, capped at `(holeWidth × 0.25)` to avoid the empty-hole trap. All-ocean straddling cells are kept; water plane hides them → ocean-side seam closed. Residual thin gap on inland side intentional. | 2026-10-31 |
+| Hermosa flat-wall prototype renders all walls white instead of averaged rooftop color | Added `sampleBuildingColor` in `src/site.js` that draws NAIP into offscreen canvas and averages per-building bbox pixels. On device, all walls render as uniform white despite roof textures looking correct. Hypotheses not yet ruled out: (a) `img.crossOrigin='anonymous'` tainted canvas on Vite dev → `getImageData` throws silently or returns opaque white; (b) vertex colors fed as sRGB [0..1] but three.js r169 treats color attribute as linear → gamma-encoded output brightens, but shouldn't be pure white; (c) sampling bbox is correct in theory (verified lat/lon → local-m → UV math for sample ring). Debug status line + console logs wired but never surfaced because `setStatus(t('site.ready'))` later in `main()` clobbers the debug text. | **Open.** Next session: move debug into a non-clobbered element (HUD title suffix or `#water-context`), or switch to `alert()`. Then verify imgData.width/height and center-pixel RGB. | 2026-11-01 |
 
 ## Claude Code / Termux environment
 
@@ -168,6 +169,35 @@ Live notes. Shipped ISSM native-stack / APK / 3D rendering details live in
 ## Buildings — wall rendering
 
 - 2026-10-31: **"Transparent" building walls = OSM ring winding + back-face culling.** Buildings used `MeshBasicMaterial({map: naipTexture})` with default `side: FrontSide`. OSM `way["building"]` rings aren't guaranteed CCW from above; CW rings make the wall front face point INTO the building, back-face culling then hides the wall from any outside camera → roof visible, walls invisible → looks transparent. **Fix:** `side: THREE.DoubleSide` on the buildings mesh (terrain already was). Cheap because walls are a tiny fraction of the pixel budget.
+
+## Non-CONUS data dispatch
+
+- 2026-11-01: **Non-CONUS pipeline split**: `_fetch_dem` dispatches to `_fetch_dem_3dep` (USGS) inside the CONUS bbox (24–50°N, -125 to -66°W), otherwise `_fetch_dem_copernicus` (Microsoft Planetary Computer `cop-dem-glo-30`, 1°×1° tiles, LERC-compressed → `gdal_translate -projwin` to crop to local box). `_fetch_naip` similarly falls through to `_fetch_imagery_esri` (ArcGIS Online `World_Imagery/MapServer/export`). First non-US site **Mar del Plata** (`-37.97, -57.54`) ships end-to-end via this path. Buildings path (Overpass + height) works globally; only the HAG tile fetch skips (no Planetary-Computer 3DEP outside US). Mar del Plata buildings fall back to the 7 m default.
+- 2026-11-01: **Esri `World_Imagery` has a soft size cap around 2048 px.** Requesting 4000×3153 triggers intermittent 504 Gateway Timeout from `services.arcgisonline.com`. `_fetch_imagery_esri` now caps at `min(px, 2048)`. 3DEP ElevationServer (USGS) has no such cap at 1000×830.
+- 2026-11-01: **Superfarfield skipped for non-CONUS.** 200 km × 200 km from Copernicus would need ~16 tiles stitched; not worth it for the one Argentine site. `_build_site` conditionally skips super-far layer if `_in_conus(center)` is False. Mar del Plata ships with 2-layer stack (inner + farfield).
+- 2026-11-01: **Mar del Plata rendering issue (not a bug, a design limitation).** Center is literally on the beach at La Perla — half the inner tile is open Atlantic. DEM returns ~0 for ocean cells; `topo[topo < 1] = -5` sinks them below the water plane. Result looks fine *visually* (ocean is blue) but the system doesn't *know* which cells are water vs low-lying land, so it can't do anything smarter (e.g. preserve beach gradient, keep sand above water at SLR=0). The right fix is an optional per-site `ocean.exp` polygon (ISSM `expread`) that constrains ocean to the right half — TODO.
+
+## Flaky upstream services
+
+- 2026-11-01: **Overpass API (`overpass-api.de/api/interpreter`) and USGS 3DEP ExportImage both throw transient 502s** on busy days. Not a client bug — direct `curl -sIL` on the exact failing URL returns 200 within seconds. Retry 1-3× before touching code. Suggested future fix: wrap `requests.get` in `_fetch_dem_3dep` / `_fetch_osm_buildings` with a small 429/502 retry loop (backoff 2^n up to 3 tries).
+
+## Icon / assets
+
+- 2026-11-01: **`scripts/make-icon.py` now also writes `public/icon.png`** (256 px, same Pillow render used for Android launcher). Needed a `.gitignore` whitelist line `!public/icon.png` because the global `*.png` catch-all would otherwise ignore it. Verify fresh additions with `git check-ignore -v <path>`.
+
+## i18n (EN/ES)
+
+- 2026-11-01: **Shared `src/i18n.js` module** holds `STRINGS = {en, es}`, `getLang()` (reads `localStorage['seantinel_lang']`, falls back to `navigator.language.slice(0,2)`), `t(key)`, `applyI18n(root)` (walks `[data-i18n]` and `[data-i18n-html]`), `mountLangToggle(container)` (adds a top-right EN/ES button that calls `setLang(other); location.reload()`). Reload-on-switch is dumb-simple and avoids re-wiring Three.js scene text (sprite label, scenario text). Both `index.html` and `site.html` import the module.
+- 2026-11-01: **Which strings got translated**: landing (tagline, 2 intro paragraphs, "Choose a city", country labels, author credit, "Contact" label), viewer (slider title, "You are here" marker, scenario-for-depth text, loading/error/ready status, data credit). Fixed site names (Hermosa Beach, Redondo Beach, Mar del Plata, Manhattan Beach Pier) stay untranslated — they're proper nouns.
+- 2026-11-01: **Chrome auto-translate caveat**: Chrome's "offer to translate" bar re-translates the whole page on top of whatever `t()` returns, which can double-translate or garble the UI. For debugging/screenshots, turn off at Settings → Languages → "Offer to translate…" or per-site "Never translate this site".
+
+## Shortcuts (CLAUDE.md)
+
+- 2026-11-01: **`op`** = open the just-built page on `localhost:5173`. **`ops`** = open the live production site `https://seantinel.org/`. **`SC` / `SCn`** = read the latest N screenshots from `~/storage/shared/DCIM/Screenshots/`. Documented in CLAUDE.md "Screenshot shortcuts" + "Open-page shortcut" sections — no need to re-explain each session.
+
+## Pier photos
+
+- 2026-11-01: **Manhattan Beach Pier high-res photo set.** 29 Samsung-camera JPGs taken on-pier (11:54–11:58 Nov 1), copied to `data/manhattan_pier/photos/` (~283 MB total, gitignored under `data/`). EXIF GPS clusters around (33.8838, -118.4133) matching the pier center we passed to `SITES`. Use PIL `_getexif()` + `GPSTAGS` to extract — fast enough to verify a whole batch in one pass. Framing guidance given to Eric: landscape, 4:3, ~1 m above deck, 30° overlap. Scope for a photogrammetry/texture-overlay feature is undefined — park under TODO Aspirational.
 
 ## Things that didn't work
 
