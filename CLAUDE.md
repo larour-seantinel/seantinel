@@ -103,6 +103,20 @@ Applies to `/dev.html` snapshot viewer and the main site. Also applies when you
 drop a new snapshot via `plot_web()` — tell Eric to switch to the browser tab,
 don't ask him to open it.
 
+## Screenshot shortcuts
+
+When Eric types one of these, read screenshots from
+`~/storage/shared/DCIM/Screenshots/` sorted by mtime:
+
+- `SC` — read the latest screenshot
+- `SCn` where n is a digit — read the latest `n` screenshots (e.g. `SC2` = last 2, `SC5` = last 5)
+
+Just view them with the Read tool and respond to what they show; no extra confirmation needed.
+
+## Open-page shortcut
+
+When Eric types `op`, open the web page for the task just completed in this session — e.g. if we just built the `manhattan` site, run `termux-open-url "http://localhost:5173/site.html?loc=manhattan"`. If Vite isn't running, start it first. No confirmation needed.
+
 ## Shared-file sync discipline
 
 The phone TO-DO app (`android-todo`) writes directly to `TODO.md` on GitHub master. Local checkout may be behind at any time.

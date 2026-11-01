@@ -125,6 +125,13 @@ SITES = [
      "half_m": 250, "fine_r": 100,
      "focus_radius": 60.0, "elev_max": 500,
      "hmin": 2.0, "hmax": 30.0, "buildings": True},
+    {"slug": "manhattan", "title": "Manhattan Beach Pier",
+     "center": (33.8835911, -118.4139571),
+     "half_m": 2500, "fine_r": 500,
+     "focus_radius": 150.0, "elev_max": 500,
+     "buildings": True,
+     "farfield": {"half_m": 10000, "grid_n": 80, "naip_px": 1024},
+     "superfarfield": {"half_m": 200000, "grid_n": 60, "naip_px": 1024}},
     # Non-CONUS: Copernicus GLO-30 DSM + Esri World_Imagery, OSM buildings
     # with no lidar HAG (falls back to OSM tag heights / 7 m default).
     # Super-far skipped — would need a mosaic of ~16 GLO-30 tiles.
