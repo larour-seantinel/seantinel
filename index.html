@@ -4,38 +4,72 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Seantinel</title>
+  <link rel="icon" type="image/png" href="/icon.png" />
   <style>
-    html, body { margin: 0; padding: 0; height: 100%; background: #0b0d10; color: #eee; font-family: sans-serif; }
-    body { display: flex; flex-direction: column; align-items: center; justify-content: center; }
-    h1 { font-size: 42px; margin: 0 0 8px 0; letter-spacing: 1px; }
-    .tag { color: #8aa; margin-bottom: 36px; font-size: 15px; }
-    .row { display: flex; gap: 24px; flex-wrap: wrap; justify-content: center; }
-    .card { display: block; width: 280px; padding: 22px 20px; background: #15191e; border: 1px solid #2a3038; border-radius: 10px; text-decoration: none; color: #eee; transition: border-color 0.15s, transform 0.15s; }
-    .card:hover { border-color: #4a90c9; transform: translateY(-2px); }
-    .card h2 { margin: 0 0 6px 0; font-size: 20px; }
-    .card p { margin: 0; color: #9aa; font-size: 13px; line-height: 1.4; }
+    html, body { margin: 0; padding: 0; min-height: 100%; color: #eef4fa; font-family: sans-serif; }
+    body {
+      display: flex; flex-direction: column; align-items: center;
+      padding: 48px 20px 80px; box-sizing: border-box;
+      background:
+        radial-gradient(ellipse at 50% 20%, rgba(130, 180, 230, 0.35) 0%, rgba(10, 25, 45, 0) 55%),
+        linear-gradient(180deg, #0a1a2e 0%, #0c2742 35%, #0e3a63 65%, #0b2a4a 100%);
+      min-height: 100vh;
+    }
+    .brand { display: flex; flex-direction: column; align-items: center; margin-bottom: 24px; }
+    .brand img { width: 108px; height: 108px; border-radius: 20px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45); }
+    h1 { font-size: 48px; margin: 18px 0 10px 0; letter-spacing: 1px; }
+    .tag { color: #9fc6e8; margin-bottom: 32px; font-size: 16px; text-align: center; max-width: 640px; }
+    .intro { max-width: 640px; color: #d4e2ee; font-size: 15px; line-height: 1.6; text-align: center; margin: 0 0 48px 0; }
+    .intro p { margin: 0 0 12px 0; }
+    .pick { color: #9fc6e8; font-size: 14px; margin-bottom: 20px; letter-spacing: 0.5px; text-transform: uppercase; }
+    .row { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
+    .card { display: block; width: 220px; padding: 24px 20px; background: rgba(18, 32, 52, 0.75); border: 1px solid rgba(120, 170, 210, 0.3); border-radius: 10px; text-decoration: none; color: #eef4fa; transition: border-color 0.15s, transform 0.15s, background 0.15s; text-align: center; backdrop-filter: blur(4px); }
+    .card:hover { border-color: #78b4e0; background: rgba(26, 48, 76, 0.85); transform: translateY(-2px); }
+    .card h2 { margin: 0 0 6px 0; font-size: 20px; font-weight: 500; }
+    .card .loc { margin: 0; color: #9fc6e8; font-size: 13px; }
+    .lang-toggle {
+      position: fixed; top: 14px; right: 16px;
+      background: rgba(0, 0, 0, 0.35); color: #cfe8ff;
+      border: 1px solid rgba(140, 180, 220, 0.4); border-radius: 6px;
+      padding: 6px 10px; font-size: 12px; letter-spacing: 1px;
+      cursor: pointer; font-family: inherit;
+    }
+    .lang-toggle:hover { background: rgba(0, 0, 0, 0.6); border-color: #78b4e0; color: #fff; }
   </style>
 </head>
 <body>
-  <h1>Seantinel</h1>
-  <div class="tag">Sea level visualization</div>
+  <div class="brand">
+    <img src="/icon.png" alt="Seantinel" />
+    <h1>Seantinel</h1>
+    <div class="tag" data-i18n="index.tagline"></div>
+  </div>
+  <div class="intro">
+    <p data-i18n="index.intro1"></p>
+    <p data-i18n="index.intro2"></p>
+  </div>
+  <div class="pick" data-i18n="index.pick"></div>
   <div class="row">
     <a class="card" href="site.html?loc=hermosa">
       <h2>Hermosa Beach</h2>
-      <p>USGS 1 m DEM with NAIP aerial drape and a 0–10 m sea-level slider.</p>
+      <p class="loc" data-i18n="loc.california"></p>
     </a>
     <a class="card" href="site.html?loc=redondo">
       <h2>Redondo Beach</h2>
-      <p>Same pipeline, Redondo Beach pier area.</p>
+      <p class="loc" data-i18n="loc.california"></p>
     </a>
     <a class="card" href="site.html?loc=manhattan">
       <h2>Manhattan Beach Pier</h2>
-      <p>Pier-centered 5 km tile with in-person photo capture Nov 2026.</p>
+      <p class="loc" data-i18n="loc.california"></p>
     </a>
     <a class="card" href="site.html?loc=mardelplata">
       <h2>Mar del Plata</h2>
-      <p>Argentina — Copernicus GLO-30 DEM + Esri World Imagery, OSM buildings.</p>
+      <p class="loc" data-i18n="loc.buenosaires"></p>
     </a>
   </div>
+  <script type="module">
+    import { applyI18n, mountLangToggle } from '/src/i18n.js';
+    applyI18n();
+    mountLangToggle(document.body);
+  </script>
 </body>
 </html>

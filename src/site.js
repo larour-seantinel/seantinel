@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { t, applyI18n, mountLangToggle } from './i18n.js';
 
 const Z_EXAG = 1;
 
@@ -160,7 +161,7 @@ function buildMarker(s) {
   sphere.renderOrder = 10;
   markerGroup.add(sphere);
 
-  const label = makeLabelSprite('You are here');
+  const label = makeLabelSprite(t('site.you_are_here'));
   label.position.set(x0, y0, groundZ + 24);
   label.scale.set(80, 20, 1);
   markerGroup.add(label);
@@ -401,12 +402,12 @@ function configureWaterSlider() {
 // Rough IPCC AR6-ish framing. Not precise — meant to give the general
 // public a sense of what each slider setting corresponds to in time.
 function scenarioFor(meters) {
-  if (meters < 0.05) return 'Today\u2019s sea level';
-  if (meters < 0.3)  return 'Projected around 2050';
-  if (meters < 0.6)  return 'Likely by 2100';
-  if (meters < 1.2)  return 'High-end 2100 scenario';
-  if (meters < 2.5)  return '2100+ with ice-sheet loss';
-  return 'Beyond 2100 (worst case)';
+  if (meters < 0.05) return t('scenario.today');
+  if (meters < 0.3)  return t('scenario.2050');
+  if (meters < 0.6)  return t('scenario.2100');
+  if (meters < 1.2)  return t('scenario.2100_high');
+  if (meters < 2.5)  return t('scenario.ice_loss');
+  return t('scenario.worst');
 }
 
 function updateWaterDisplay(sliderValue) {
@@ -422,6 +423,9 @@ function getLocSlug() {
 }
 
 async function main() {
+  applyI18n();
+  mountLangToggle(document.body);
+  setStatus(t('site.loading'));
   initScene();
   const slug = getLocSlug();
   try {
@@ -429,12 +433,12 @@ async function main() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     snap = await res.json();
   } catch (e) {
-    setStatus('error loading data: ' + e.message);
+    setStatus(t('site.error') + e.message);
     return;
   }
   const label = snap.title || slug;
-  titleEl.textContent = `${label} · sea level`;
-  document.title = `Seantinel · ${label}`;
+  titleEl.textContent = `${label} \u00b7 ${t('site.title_suffix')}`;
+  document.title = `Seantinel \u00b7 ${label}`;
   if (snap.superfarfield) buildGridLayer(snap.superfarfield, snap.farfield?.bbox || snap.bbox, 2);
   if (snap.farfield) buildGridLayer(snap.farfield, snap.bbox, 1);
   buildTerrain(snap);
@@ -443,7 +447,7 @@ async function main() {
   buildMarker(snap);
   frameCamera(snap);
   configureWaterSlider();
-  setStatus('Drag to look around. Use the slider to see how sea-level rise reshapes the coastline.');
+  setStatus(t('site.ready'));
 
   waterRange.addEventListener('input', () => {
     updateWaterDisplay(parseFloat(waterRange.value));

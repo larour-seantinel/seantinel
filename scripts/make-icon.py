@@ -9,6 +9,8 @@ ROOT = Path(__file__).resolve().parent.parent
 TARGETS = [ROOT / "android-spike" / "res", ROOT / "android-todo" / "res"]
 DENSITIES = {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}
 HERO = 512  # supersample for antialiasing, then downsample
+WEB_OUT = ROOT / "public" / "icon.png"
+WEB_PX = 256
 
 def render(size=HERO):
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
@@ -155,7 +157,9 @@ def main():
             out_dir.mkdir(parents=True, exist_ok=True)
             resized = hero.resize((px, px), Image.LANCZOS)
             resized.save(out_dir / "ic_launcher.png")
-    print(f"wrote icons to {len(TARGETS)} apps × {len(DENSITIES)} densities")
+    WEB_OUT.parent.mkdir(parents=True, exist_ok=True)
+    hero.resize((WEB_PX, WEB_PX), Image.LANCZOS).save(WEB_OUT)
+    print(f"wrote icons to {len(TARGETS)} apps × {len(DENSITIES)} densities, plus {WEB_OUT.relative_to(ROOT)}")
 
 if __name__ == "__main__":
     main()
