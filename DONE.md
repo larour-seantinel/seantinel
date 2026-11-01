@@ -3,6 +3,12 @@
 Shipped work. Not auto-loaded. Reach for it if you need to know whether a
 milestone has been crossed; otherwise ignore.
 
+## Seantinel viewer
+- 2026-10-31: Layer-seam blue water bands fixed (ocean side). Hole-cut now culls a cell only when it overlaps the shrunk hole AND has a dry-land corner; shrink capped at `holeWidth × 0.25`. All-ocean straddling cells stay, water plane hides them.
+- 2026-10-31: Zoom clamped to `[20, 4000]` m via `OrbitControls.min/maxDistance` so users can't zoom out far enough to see residual layer-seam artifacts.
+- 2026-10-31: Dropped `logarithmicDepthBuffer`; linear depth with per-frame `near = max(camDist*0.1, 1)` / `far = max(camDist*50, 10000)` — fixes z-fight stripes between water and buildings at close zoom.
+- 2026-10-31: Slider halved to 7 px with 2 px yellow (`#ffd54a`) track so the center line is visible.
+
 ## Infra & environment
 - Project initialized
 - `/start`, `/close`, `/debug` commands set up (global + project)

@@ -4,7 +4,6 @@ Shipped work moved to [DONE.md](DONE.md). Pull in on demand.
 
 ## In Progress
 
-- **Fix the blue water bands between layers** (inner↔farfield ~160 m, farfield↔superfar ~170 m). "Shrink hole by one cell" trap documented in LEARNINGS. Candidate fixes: (a) per-vertex rule — keep straddling cells whose inside vertex is below water, cull only when inside vertex is dry land (flaps only form at ocean-side land vertices); (b) cap shrink at `min(cellSize, holeHalfWidth × 0.5)` and accept residual gap for coarsest layer; (c) extend inner meshes with a sloped "skirt" past their bbox.
 - Decide custom domain and buy via Cloudflare Registrar. Shortlist: `seantinel.app` (~$15/yr), `seantinel.org` (~$10/yr), `seantinel.earth` (~$70/yr). `seantinel.com` is squatted. See LEARNINGS "Domain research".
 
 ## Next Up — Seantinel core
