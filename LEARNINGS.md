@@ -165,8 +165,14 @@ Live notes. Shipped ISSM native-stack / APK / 3D rendering details live in
 
 - 2026-10-31: **`OrbitControls.minDistance` and `.maxDistance` clamp zoom.** Without a max, the user zooms out until the super-far-field layer-seam gaps dominate the view (see layer stacking section). Hermosa / Redondo now cap at `maxDistance = 4000` (4 km from target) + `minDistance = 20` (don't let the camera penetrate a building). Pair with dynamic near/far for best depth precision.
 
+## Buildings — wall rendering
+
+- 2026-10-31: **"Transparent" building walls = OSM ring winding + back-face culling.** Buildings used `MeshBasicMaterial({map: naipTexture})` with default `side: FrontSide`. OSM `way["building"]` rings aren't guaranteed CCW from above; CW rings make the wall front face point INTO the building, back-face culling then hides the wall from any outside camera → roof visible, walls invisible → looks transparent. **Fix:** `side: THREE.DoubleSide` on the buildings mesh (terrain already was). Cheap because walls are a tiny fraction of the pixel budget.
+
 ## Things that didn't work
 
 - 2026-10-22: Claude Code `statusLine` config in `settings.json` outputs to Claude Code's own TUI — not to GNU screen's hardstatus. Different mechanisms; don't conflate.
 - 2026-10-31: **Shrink the far-field hole by one cell** to close the water-band gap at layer seams. Works at the 253 m farfield scale, catastrophic at the 6.8 km super-farfield scale (empty hole → full overlay). See Multi-scale layer stacking.
 - 2026-10-31: **`polygonOffset` on water material** to break the z-tie with building walls at the waterline. Pushed water the wrong direction in log depth buffer — terrain bled through water in long horizontal stripes. See Depth-buffer precision.
+- 2026-10-31: **Fixed `near=0.5, far=50000` on linear depth** to replace dynamic near/far. Pushed speculatively without local test. 1:100000 ratio → severe z-fight flicker on all surfaces at prod. Reverted. Dynamic near/far keyed to camDist is still the right scheme for this scene; don't swap it for static values. Also: never push a render change without `npm run dev` + visual check first.
+- 2026-10-31: **Misdiagnosed "transparent" walls as near-plane clipping** (hypothesized `camera.near = camDist * 0.1` was eating fronts of nearby buildings). Real cause was OSM ring winding + back-face culling. The near/far scheme was fine. Lesson: when a symptom could be either depth-buffer OR culling, test winding/`side: DoubleSide` first — it's a one-line change with no z-precision risk.
