@@ -281,7 +281,9 @@ function buildBuildings(s) {
 
 // Far-field ring: regular NxN grid draped with low-res NAIP. Sunk 1 m under
 // the inner terrain so there is no z-fight where they overlap — the inner mesh
-// wins by depth test.
+// wins by depth test. A clean rectangular hole is cut matching the inner bbox:
+// cells with any strictly-interior vertex are dropped, so no coastal "flaps"
+// poke past the inner mesh's edge into the water.
 function buildFarfield(s) {
   if (!s.farfield) return;
   const ff = s.farfield;
@@ -289,6 +291,7 @@ function buildFarfield(s) {
   const xs = ff.xs, ys = ff.ys, z = ff.z;
   const [xmin, ymin, xmax, ymax] = ff.bbox;
   const xspan = xmax - xmin, yspan = ymax - ymin;
+  const [ixmin, iymin, ixmax, iymax] = s.bbox;
 
   const positions = new Float32Array(nx * ny * 3);
   const uvs = new Float32Array(nx * ny * 2);
@@ -302,18 +305,20 @@ function buildFarfield(s) {
       uvs[2 * k + 1] = (ys[j] - ymin) / yspan;
     }
   }
-  const idx = new Uint32Array((nx - 1) * (ny - 1) * 6);
-  let ii = 0;
+  const inside = (i, j) =>
+    xs[i] > ixmin && xs[i] < ixmax && ys[j] > iymin && ys[j] < iymax;
+  const tris = [];
   for (let j = 0; j < ny - 1; j++) {
     for (let i = 0; i < nx - 1; i++) {
+      if (inside(i, j) || inside(i + 1, j) || inside(i, j + 1) || inside(i + 1, j + 1)) continue;
       const a = j * nx + i;
       const b = j * nx + i + 1;
       const c = (j + 1) * nx + i;
       const d = (j + 1) * nx + i + 1;
-      idx[ii++] = a; idx[ii++] = b; idx[ii++] = d;
-      idx[ii++] = a; idx[ii++] = d; idx[ii++] = c;
+      tris.push(a, b, d, a, d, c);
     }
   }
+  const idx = new Uint32Array(tris);
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
