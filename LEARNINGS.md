@@ -129,6 +129,24 @@ Live notes. Shipped ISSM native-stack / APK / 3D rendering details live in
 - 2026-10-31: **Z exaggeration applies to terrain only, not buildings.** Terrain uses `z * Z_EXAG` (×5) to make coastal relief visible; buildings should extrude at true 1:1 (`depth: h`, not `h * Z_EXAG`) or multistory buildings look like skyscrapers. Base position still goes to `groundZ * Z_EXAG` (terrain-exaggerated world), only the extrusion depth stays real.
 - 2026-10-31: **`MeshLambertMaterial` + HemisphereLight(1.2) renders very dark under Three.js physical lighting mode.** NAIP texture barely visible. Fix: `MeshBasicMaterial({map: tex})` — no lighting needed, textures render at native brightness. Loses face shading as a 3D cue, but the silhouette from the extrusion is enough depth signal.
 
+## Buildings scaled to 5 km × 5 km
+
+- 2026-10-31: **HAG p95 picks lidar artifacts.** `3dep-lidar-hag` raster for Hermosa has pixels up to 287 m (antennas, overhanging trees, bounce, birds). Over small polygons the 95th percentile grabs one of these → turned ~1.3% of residential houses into 60–250 m glass spires. **Fix:** clip pixel values to `[0.5, 40]` before stats and use median instead of p95. Median+cap gives Hermosa: median 6.6 m, max 39.4 m, 3 buildings > 25 m — realistic for the area.
+- 2026-10-31: **HAG tile coverage ≈ 8 km × 3 km (Microsoft Planetary Computer 3dep-lidar-hag item).** The pipeline fetches `items[0]` only. For a 5 km × 5 km box this is partial: Hermosa 70% hit rate, Redondo 32% (same tile covers the north edge of Redondo but not most of it). Buildings outside coverage fall back to 7 m. Multi-tile mosaic needed to fully cover 5 km+ boxes.
+- 2026-10-31: **20k separate `ExtrudeGeometry` + Mesh objects is a mobile killer.** Each polygon's `new THREE.ExtrudeGeometry(shape, opts)` adds ~1 ms of construction overhead. On a phone that stacks to ~20 s before first render. **Fix:** build one merged `BufferGeometry` manually — walls as per-edge quads (4 verts + 6 indices), roof as `THREE.ShapeUtils.triangulateShape(contour, [])` (earcut). One draw call. Load went from "takes a while" to feeling instant.
+- 2026-10-31: **Ground-Z lookup per building was O(n_mesh_verts) nearest-neighbor.** 20k buildings × 5 ring verts × 10k mesh verts = 1 billion ops in JS. **Fix:** precompute a 128×128 regular grid of ground Z (max over verts falling in each cell), then per-building lookup at centroid is O(1).
+- 2026-10-31: **JSON ring coord rounding to 0.1 m cuts payload ~57%.** Hermosa 12 MB → 5.1 MB; Redondo 11 MB → 4.7 MB. 10 cm precision is overkill for city-scale viz. Over Cloudflare gzip, down to ~1.5–2 MB on the wire.
+- 2026-10-31: **Overpass over 5 km × 5 km dense residential returns ~20k polygons.** Hermosa 20,430 ways, Redondo 18,608. Raw OSM JSON is ~24 MB per site; after parse + trim it's manageable. Shoelace area filter at 20 m² only drops ~1.5% of polygons — OSM is already fairly clean.
+
+## CSS / UI
+
+- 2026-10-31: **Flex-column panel without fixed width reflows as its text content changes.** The sea-level slider's context label swings between "Today's sea level" (1 line) and "2100+ with ice-sheet loss" (2 lines); the panel grew/shrank in width as the user moved the slider. **Fix:** `width: 150px; box-sizing: border-box;` on `#water-panel`.
+
+## Domain research
+
+- 2026-10-31: **`seantinel.com` is squatted** (registered 2025-12-10 via Tucows, not in active use). Available shortlist for `seantinel.<tld>`: `.app` ($15), `.org` ($10), `.earth` ($70), `.io` ($35), `.ai` ($70–100), `.co` ($30), `.dev` ($15), plus most other newer TLDs. **Buy via Cloudflare Registrar at-cost** — already share the account with Pages, auto-wires DNS. Free WHOIS privacy, DNS, SSL, DDoS, CDN, and 200-address email forwarding bundled.
+- 2026-10-31: **Termux has whois in `pkg install whois`.** For Google TLDs (`.app`, `.dev`, `.page`) that use HTTPS-only whois.nic.<tld> servers not resolvable from Termux, use `curl -sL https://www.rdap.net/domain/<name>.<tld>` — follows redirects to the right registry RDAP endpoint and returns JSON (`"ldhName"` → taken, `"errorCode": 404` → available).
+
 ## Things that didn't work
 
 - 2026-10-22: Claude Code `statusLine` config in `settings.json` outputs to Claude Code's own TUI — not to GNU screen's hardstatus. Different mechanisms; don't conflate.

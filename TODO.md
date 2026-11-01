@@ -4,21 +4,17 @@ Shipped work moved to [DONE.md](DONE.md). Pull in on demand.
 
 ## In Progress
 
-- Verify textured-building scene on `hermosa_closeup` from a few orbit angles; decide whether we want any per-face shading beyond the planar NAIP drape.
+- Decide custom domain and buy via Cloudflare Registrar. Shortlist: `seantinel.app` (~$15/yr), `seantinel.org` (~$10/yr), `seantinel.earth` (~$70/yr). `seantinel.com` is squatted. See LEARNINGS "Domain research".
 
 ## Next Up — Seantinel core
 
-- Push the buildings + aspect-ratio fix to Cloudflare once we're happy with the look (currently local-only — Eric wants to experiment first).
-- Fix hermosa + redondo mesh/NAIP alignment: re-run step 1 and 2 now that `_aspect_size` is in place (DEM and NAIP both compress ~10% N–S at the old pixel aspect, so coastal detail is slightly off even without OSM overlay).
+- **Multi-tile HAG mosaicing for 5 km+ boxes.** Current pipeline grabs `items[0]` from `3dep-lidar-hag` STAC search, which is one ~8×3 km tile. Hermosa gets 70% coverage, Redondo only 32% (rest default to 7 m). Fetch all overlapping items, build an in-memory mosaic keyed by UTM extent, then look up per-building height.
 - Take pictures of Long Beach, Torrance, Redondo and Hermosa Beach.
 - Generate QR codes for existing sites (`site.html?loc=hermosa` / `?loc=redondo` / `?loc=hermosa_closeup`). URL shape is already settled on slug.
-- Verify Redondo scene end-to-end on-device (same ocean/spike fixes applied; only Hermosa was eyeballed).
 - Add `hermosa_closeup` card to landing page.
 - Layer a 1 m/px inner NAIP tile (±500 m around center) over the current 4000² base — base is now ~1.25 m/px, but a sharper pier-area tile would still help.
 - Investigate 3DEP ExportImage TIFF corruption at ≥2000×2000 — PIL reads it as float garbage. Would unlock higher-res DEMs. Likely rasterio solves it.
-- Add more coastal sites (Long Beach, Torrance, Palos Verdes) — just needs lat/lon entries in `SITES` in `scripts/runme.py` (remember to pick `elev_max` for the site's max real elevation).
-- Enable buildings on more sites: set `"buildings": True` in `SITES`. HAG tile size scales with box; may need multi-tile mosaicing for `half_m > 1000`.
-- Decide custom domain: `seantinel.app` (~$15/yr) vs stay on free `seantinel.pages.dev`.
+- Add more coastal sites (Long Beach, Torrance, Palos Verdes) — just needs lat/lon entries in `SITES` in `scripts/runme.py` (remember `elev_max` and `"buildings": True`).
 
 ## Nice to have
 
