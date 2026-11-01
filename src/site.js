@@ -280,7 +280,7 @@ function buildBuildings(s) {
   geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
   geom.setIndex(new THREE.BufferAttribute(indices, 1));
-  const mat = new THREE.MeshBasicMaterial({ map: naipTexture });
+  const mat = new THREE.MeshBasicMaterial({ map: naipTexture, side: THREE.DoubleSide });
   const mesh = new THREE.Mesh(geom, mat);
   scene.add(mesh);
 }
