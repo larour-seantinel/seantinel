@@ -197,87 +197,24 @@ function groundZFromGrid(g, x, y) {
   return g.grid[iy * g.nx + ix];
 }
 
-// Load an image as a canvas ImageData so we can sample per-pixel RGB.
-function loadImageData(url) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      try {
-        const c = document.createElement('canvas');
-        c.width = img.naturalWidth; c.height = img.naturalHeight;
-        const ctx = c.getContext('2d');
-        ctx.drawImage(img, 0, 0);
-        const data = ctx.getImageData(0, 0, c.width, c.height);
-        // Dump a few sample pixels so we can confirm the image decoded.
-        const mid = (Math.floor(c.height / 2) * c.width + Math.floor(c.width / 2)) * 4;
-        console.log('[loadImageData]', url, c.width + 'x' + c.height,
-                    'center RGB:', data.data[mid], data.data[mid+1], data.data[mid+2]);
-        resolve(data);
-      } catch (e) {
-        console.error('[loadImageData] getImageData failed:', e);
-        reject(e);
-      }
-    };
-    img.onerror = (e) => { console.error('[loadImageData] load error:', url, e); reject(e); };
-    img.src = url;
-  });
-}
-
-// Mean RGB (0..1) of the NAIP pixels inside the building's local-coord bbox.
-// Subsamples at most ~16 steps per side so a 17k-building site stays fast.
-function sampleBuildingColor(contour, s, imgData) {
-  const [xmin, ymin, xmax, ymax] = s.bbox;
-  const xspan = xmax - xmin, yspan = ymax - ymin;
-  let bxmin = Infinity, bymin = Infinity, bxmax = -Infinity, bymax = -Infinity;
-  for (const p of contour) {
-    if (p.x < bxmin) bxmin = p.x;
-    if (p.x > bxmax) bxmax = p.x;
-    if (p.y < bymin) bymin = p.y;
-    if (p.y > bymax) bymax = p.y;
-  }
-  const W = imgData.width, H = imgData.height;
-  const ix0 = Math.max(0, Math.floor((bxmin - xmin) / xspan * W));
-  const ix1 = Math.min(W - 1, Math.ceil((bxmax - xmin) / xspan * W));
-  // Image y is top-down; UV v=0 is bottom.
-  const iy0 = Math.max(0, Math.floor((1 - (bymax - ymin) / yspan) * H));
-  const iy1 = Math.min(H - 1, Math.ceil((1 - (bymin - ymin) / yspan) * H));
-  const dxs = Math.max(1, Math.floor((ix1 - ix0) / 16));
-  const dys = Math.max(1, Math.floor((iy1 - iy0) / 16));
-  const d = imgData.data;
-  let r = 0, g = 0, b = 0, n = 0;
-  for (let y = iy0; y <= iy1; y += dys) {
-    for (let x = ix0; x <= ix1; x += dxs) {
-      const i = (y * W + x) * 4;
-      r += d[i]; g += d[i + 1]; b += d[i + 2]; n++;
-    }
-  }
-  if (!n) return [0.6, 0.6, 0.6];
-  return [r / n / 255, g / n / 255, b / n / 255];
-}
-
-// Build merged BufferGeometries for buildings. Walls are quads along each
-// polygon edge; roof is the polygon triangulated via Three.js earcut.
-// If flatWalls=true, walls get one averaged NAIP color per building instead
-// of UV-mapping the aerial image (which looks extruded from above).
-async function buildBuildings(s, flatWalls) {
+// Build one merged BufferGeometry across all buildings — one draw call, one
+// construction pass. Walls are quads along each polygon edge; roof is the
+// polygon triangulated via Three.js earcut (ShapeUtils.triangulateShape).
+function buildBuildings(s) {
   if (!s.buildings || !s.buildings.length) return;
   const [xmin, ymin, xmax, ymax] = s.bbox;
   const xspan = xmax - xmin, yspan = ymax - ymin;
   const groundGrid = buildGroundGrid(s);
   const LIFT_M = 0.3;
-  const imgData = flatWalls ? await loadImageData('data/' + s.imagery) : null;
-  if (flatWalls) {
-    const mid = (Math.floor(imgData.height / 2) * imgData.width + Math.floor(imgData.width / 2)) * 4;
-    const c0 = sampleBuildingColor([{x:0,y:0},{x:50,y:0},{x:50,y:50},{x:0,y:50}], s, imgData);
-    setStatus(`debug: img ${imgData.width}x${imgData.height} centerRGB=${imgData.data[mid]},${imgData.data[mid+1]},${imgData.data[mid+2]} sample0=${c0.map(x=>x.toFixed(2)).join(',')}`);
-  }
 
-  let wallVerts = 0, wallTris = 0, roofVerts = 0, roofTris = 0;
+  // Pre-count so we can allocate typed arrays once.
+  let totalVerts = 0, totalTris = 0;
   const prepped = [];
   for (const b of s.buildings) {
     let ring = b.ring;
     if (!ring || ring.length < 3) continue;
     let n = ring.length;
+    // Drop trailing duplicate close-point if OSM shipped one.
     const first = ring[0], last = ring[n - 1];
     if (first[0] === last[0] && first[1] === last[1]) n--;
     if (n < 3) continue;
@@ -290,83 +227,63 @@ async function buildBuildings(s, flatWalls) {
     cx /= n; cy /= n;
     const tris = THREE.ShapeUtils.triangulateShape(contour, []);
     if (tris.length === 0) continue;
-    const color = flatWalls ? sampleBuildingColor(contour, s, imgData) : null;
-    prepped.push({ contour, tris, cx, cy, h: b.h || 7, color });
-    wallVerts += n * 4; wallTris += n * 2;
-    roofVerts += n;     roofTris += tris.length;
+    prepped.push({ contour, tris, cx, cy, h: b.h || 7 });
+    totalVerts += n * 4 + n;    // wall quads (4 verts each) + roof ring verts
+    totalTris  += n * 2 + tris.length;
   }
 
-  const wallPos = new Float32Array(wallVerts * 3);
-  const wallIdx = new Uint32Array(wallTris * 3);
-  const wallUV = flatWalls ? null : new Float32Array(wallVerts * 2);
-  const wallCol = flatWalls ? new Float32Array(wallVerts * 3) : null;
-  const roofPos = new Float32Array(roofVerts * 3);
-  const roofUV = new Float32Array(roofVerts * 2);
-  const roofIdx = new Uint32Array(roofTris * 3);
-  let wpi = 0, wii = 0, wui = 0, wci = 0, wvi = 0;
-  let rpi = 0, rui = 0, rii = 0, rvi = 0;
+  const positions = new Float32Array(totalVerts * 3);
+  const uvs = new Float32Array(totalVerts * 2);
+  const indices = new Uint32Array(totalTris * 3);
+  let pi = 0, ui = 0, ii = 0, vi = 0;
 
   for (const b of prepped) {
-    const { contour, tris, cx, cy, h, color } = b;
+    const { contour, tris, cx, cy, h } = b;
     const n = contour.length;
     const groundZ = (groundZFromGrid(groundGrid, cx, cy) + LIFT_M) * Z_EXAG;
     const topZ = groundZ + h;
+
+    // Walls: one quad per edge.
     for (let i = 0; i < n; i++) {
       const a = contour[i], c = contour[(i + 1) % n];
-      wallPos[wpi++] = a.x; wallPos[wpi++] = a.y; wallPos[wpi++] = groundZ;
-      wallPos[wpi++] = c.x; wallPos[wpi++] = c.y; wallPos[wpi++] = groundZ;
-      wallPos[wpi++] = c.x; wallPos[wpi++] = c.y; wallPos[wpi++] = topZ;
-      wallPos[wpi++] = a.x; wallPos[wpi++] = a.y; wallPos[wpi++] = topZ;
-      if (flatWalls) {
-        for (let k = 0; k < 4; k++) {
-          wallCol[wci++] = color[0]; wallCol[wci++] = color[1]; wallCol[wci++] = color[2];
-        }
-      } else {
-        const ua = (a.x - xmin) / xspan, va = (a.y - ymin) / yspan;
-        const uc = (c.x - xmin) / xspan, vc = (c.y - ymin) / yspan;
-        wallUV[wui++] = ua; wallUV[wui++] = va;
-        wallUV[wui++] = uc; wallUV[wui++] = vc;
-        wallUV[wui++] = uc; wallUV[wui++] = vc;
-        wallUV[wui++] = ua; wallUV[wui++] = va;
-      }
-      wallIdx[wii++] = wvi;     wallIdx[wii++] = wvi + 1; wallIdx[wii++] = wvi + 2;
-      wallIdx[wii++] = wvi;     wallIdx[wii++] = wvi + 2; wallIdx[wii++] = wvi + 3;
-      wvi += 4;
+      const ua = (a.x - xmin) / xspan, va = (a.y - ymin) / yspan;
+      const uc = (c.x - xmin) / xspan, vc = (c.y - ymin) / yspan;
+      positions[pi++] = a.x; positions[pi++] = a.y; positions[pi++] = groundZ;
+      positions[pi++] = c.x; positions[pi++] = c.y; positions[pi++] = groundZ;
+      positions[pi++] = c.x; positions[pi++] = c.y; positions[pi++] = topZ;
+      positions[pi++] = a.x; positions[pi++] = a.y; positions[pi++] = topZ;
+      uvs[ui++] = ua; uvs[ui++] = va;
+      uvs[ui++] = uc; uvs[ui++] = vc;
+      uvs[ui++] = uc; uvs[ui++] = vc;
+      uvs[ui++] = ua; uvs[ui++] = va;
+      indices[ii++] = vi;     indices[ii++] = vi + 1; indices[ii++] = vi + 2;
+      indices[ii++] = vi;     indices[ii++] = vi + 2; indices[ii++] = vi + 3;
+      vi += 4;
     }
-    const roofStart = rvi;
+
+    // Roof: shared ring verts at topZ, triangulated by earcut.
+    const roofStart = vi;
     for (let i = 0; i < n; i++) {
       const p = contour[i];
-      roofPos[rpi++] = p.x; roofPos[rpi++] = p.y; roofPos[rpi++] = topZ;
-      roofUV[rui++] = (p.x - xmin) / xspan;
-      roofUV[rui++] = (p.y - ymin) / yspan;
-      rvi++;
+      positions[pi++] = p.x; positions[pi++] = p.y; positions[pi++] = topZ;
+      uvs[ui++] = (p.x - xmin) / xspan;
+      uvs[ui++] = (p.y - ymin) / yspan;
+      vi++;
     }
     for (const t of tris) {
-      roofIdx[rii++] = roofStart + t[0];
-      roofIdx[rii++] = roofStart + t[1];
-      roofIdx[rii++] = roofStart + t[2];
+      indices[ii++] = roofStart + t[0];
+      indices[ii++] = roofStart + t[1];
+      indices[ii++] = roofStart + t[2];
     }
   }
 
-  const wallGeom = new THREE.BufferGeometry();
-  wallGeom.setAttribute('position', new THREE.BufferAttribute(wallPos, 3));
-  wallGeom.setIndex(new THREE.BufferAttribute(wallIdx, 1));
-  let wallMat;
-  if (flatWalls) {
-    wallGeom.setAttribute('color', new THREE.BufferAttribute(wallCol, 3));
-    wallMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
-  } else {
-    wallGeom.setAttribute('uv', new THREE.BufferAttribute(wallUV, 2));
-    wallMat = new THREE.MeshBasicMaterial({ map: naipTexture, side: THREE.DoubleSide });
-  }
-  scene.add(new THREE.Mesh(wallGeom, wallMat));
-
-  const roofGeom = new THREE.BufferGeometry();
-  roofGeom.setAttribute('position', new THREE.BufferAttribute(roofPos, 3));
-  roofGeom.setAttribute('uv', new THREE.BufferAttribute(roofUV, 2));
-  roofGeom.setIndex(new THREE.BufferAttribute(roofIdx, 1));
-  const roofMat = new THREE.MeshBasicMaterial({ map: naipTexture, side: THREE.DoubleSide });
-  scene.add(new THREE.Mesh(roofGeom, roofMat));
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geom.setIndex(new THREE.BufferAttribute(indices, 1));
+  const mat = new THREE.MeshBasicMaterial({ map: naipTexture, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(geom, mat);
+  scene.add(mesh);
 }
 
 // Coarse grid layer draped with its own low-res texture. Sunk `sinkM` meters
@@ -526,7 +443,7 @@ async function main() {
   if (snap.farfield) buildGridLayer(snap.farfield, snap.bbox, 1);
   buildTerrain(snap);
   buildWater(snap);
-  await buildBuildings(snap, slug === 'hermosa');
+  buildBuildings(snap);
   buildMarker(snap);
   frameCamera(snap);
   configureWaterSlider();

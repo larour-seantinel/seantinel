@@ -449,20 +449,13 @@ def _trim_buildings(buildings, min_area_m2=20.0):
 
 
 def _fetch_naip(slug, center, half_m, out_name=None, px=4000):
-    """Dispatch: NAIPPlus for CONUS, Esri World_Imagery elsewhere.
-
-    Esri's arcgisonline export caps at ~2048 before gateway-timing out on
-    inner-tile requests at this latency — keep it conservative.
+    """Esri World_Imagery for every site. USGSNAIPPlus's reprojection is tilted
+    ~5° vs OSM/FEMA/Esri in SoCal — ground-truth polygons drift into the beach
+    when draped on NAIPPlus. Esri's World_Imagery (Maxar-backed in SoCal, 0.3 m
+    native) aligns perfectly. Function name kept for caller compatibility.
     """
     name = out_name or f"{slug}_naip_h{int(half_m)}.jpg"
-    esri_px = min(px, 2048)
-    if _in_conus(center):
-        try:
-            return _fetch_naip_usgs(slug, center, half_m, name, px)
-        except RuntimeError as ex:
-            print(f"  NAIP failed ({ex}); falling back to Esri World_Imagery")
-            return _fetch_imagery_esri(slug, center, half_m, name, esri_px)
-    return _fetch_imagery_esri(slug, center, half_m, name, esri_px)
+    return _fetch_imagery_esri(slug, center, half_m, name, min(px, 2048))
 
 
 def _fetch_naip_usgs(slug, center, half_m, out_name, px=4000):

@@ -2,10 +2,6 @@
 
 Shipped work moved to [DONE.md](DONE.md). Pull in on demand.
 
-## In Progress
-
-- **Hermosa flat-wall color prototype** — walls currently render all white instead of per-building averaged NAIP color. Debug status line gets clobbered by `setStatus(t('site.ready'))` in `main()`. Debug code sits in `src/site.js` (committed WIP). Next: move debug read-out to a non-clobbered DOM element (e.g. HUD title suffix or `#water-context`), then verify `imgData.width/height` and center-pixel RGB to isolate: (a) tainted-canvas `getImageData` silent failure vs (b) sampling bbox/UV math vs (c) sRGB→linear vertex-color brightening. See LEARNINGS Open bugs 2026-11-01.
-
 ## Next Up — Seantinel core
 
 - **Land/ocean domain mask per site via `.exp` polygon.** Right now DEM elevations below a threshold are blanket-sunk to -5 m, which treats "truly ocean" and "coastal low-lying land" identically. For sites where the inner box straddles the shoreline (Mar del Plata is the trigger — center was on the beach, half the tile was open Atlantic rendered as uniform water), the result looks fine but doesn't *know* what's water. We want: an `ocean.exp` polygon (optional, per-site) that marks where ocean is allowed; outside the polygon, no vertex ever drops below sea level even if the DEM says so. Also usable for the farfield grid-layer cull. Pipeline: load `.exp` with ISSM `expread`, test each mesh vertex / farfield cell with a point-in-polygon, override z accordingly.
