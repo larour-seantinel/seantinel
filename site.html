@@ -39,9 +39,10 @@
     }
     #water-label { font-family: monospace; font-size: 13px; color: #9cf; min-width: 48px; text-align: center; }
     #water-context { font-size: 11px; color: #cde; text-align: center; max-width: 120px; line-height: 1.3; min-height: 2.6em; }
-    #credit { position: fixed; left: 10px; bottom: 10px; font-size: 11px; color: #7a8a99; }
+    #credit { position: fixed; left: 10px; bottom: 10px; font-size: 11px; color: #7a8a99; line-height: 1.5; }
     #credit a { color: inherit; text-decoration: none; }
     #credit a:hover { color: #cfe8ff; }
+    #credit .line2 { color: #8aa; }
     .lang-toggle {
       position: fixed; top: 14px; right: 16px; z-index: 3;
       background: rgba(0, 0, 0, 0.55); color: #cfe8ff;
@@ -71,7 +72,10 @@
     <div id="water-label">—</div>
     <div id="water-context">&nbsp;</div>
   </div>
-  <div id="credit" data-i18n="site.credit">Elevation: USGS 3DEP · Imagery: USGS NAIP</div>
+  <div id="credit">
+    <div data-i18n="site.credit">Elevation: USGS 3DEP · Imagery: USGS NAIP</div>
+    <div class="line2"><span data-i18n="credit.by"></span> · <a href="mailto:seantinel.org@gmail.com">seantinel.org@gmail.com</a></div>
+  </div>
   <script type="module" src="/src/site.js"></script>
 </body>
 </html>

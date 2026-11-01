@@ -15,6 +15,9 @@ const STRINGS = {
     'site.you_are_here': 'You are here',
     'site.credit': 'Elevation: USGS 3DEP \u00b7 Imagery: USGS NAIP',
 
+    'credit.by': 'A project by Dr. Eric Larour & Guillermo Anselmo Vezzosi',
+    'credit.contact': 'Contact',
+
     'scenario.today': 'Today\u2019s sea level',
     'scenario.2050': 'Projected around 2050',
     'scenario.2100': 'Likely by 2100',
@@ -37,6 +40,9 @@ const STRINGS = {
     'site.slider_title': 'Ascenso<br/>del mar',
     'site.you_are_here': 'Est\u00e1s aqu\u00ed',
     'site.credit': 'Elevaci\u00f3n: USGS 3DEP \u00b7 Im\u00e1genes: USGS NAIP',
+
+    'credit.by': 'Un proyecto de Dr. Eric Larour y Guillermo Anselmo Vezzosi',
+    'credit.contact': 'Contacto',
 
     'scenario.today': 'Nivel del mar actual',
     'scenario.2050': 'Proyectado hacia 2050',
