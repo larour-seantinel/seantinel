@@ -14,6 +14,7 @@ let scene, camera, renderer, controls;
 let terrainMesh = null;
 let waterMesh = null;
 let markerGroup = null;
+let naipTexture = null;
 let snap = null;
 
 function setStatus(m) { statusEl.textContent = m; }
@@ -100,9 +101,9 @@ function buildTerrain(s) {
   geom.setIndex(new THREE.BufferAttribute(idx, 1));
   geom.computeVertexNormals();
 
-  const tex = new THREE.TextureLoader().load('data/' + s.imagery);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  const mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
+  naipTexture = new THREE.TextureLoader().load('data/' + s.imagery);
+  naipTexture.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.MeshBasicMaterial({ map: naipTexture, side: THREE.DoubleSide });
   terrainMesh = new THREE.Mesh(geom, mat);
   scene.add(terrainMesh);
 }
@@ -159,6 +160,53 @@ function buildMarker(s) {
   markerGroup.add(label);
 
   scene.add(markerGroup);
+}
+
+// Max nearest-neighbor terrain z over a polygon's vertices. Flat polygon sits
+// at this height + a small lift, so no part of it dips below the terrain on
+// gently sloped ground.
+function maxGroundZOverRing(s, ring) {
+  let maxZ = -Infinity;
+  for (const [px, py] of ring) {
+    const z = groundZAt(s, px, py);
+    if (z > maxZ) maxZ = z;
+  }
+  return maxZ;
+}
+
+function buildBuildings(s) {
+  if (!s.buildings || !s.buildings.length) return;
+  const group = new THREE.Group();
+  const [xmin, ymin, xmax, ymax] = s.bbox;
+  const xspan = xmax - xmin, yspan = ymax - ymin;
+  const mat = new THREE.MeshBasicMaterial({ map: naipTexture });
+  const LIFT_M = 0.3;
+  for (const b of s.buildings) {
+    const ring = b.ring, h = b.h || 7;
+    if (ring.length < 3) continue;
+    const shape = new THREE.Shape();
+    shape.moveTo(ring[0][0], ring[0][1]);
+    for (let i = 1; i < ring.length; i++) {
+      shape.lineTo(ring[i][0], ring[i][1]);
+    }
+    const geom = new THREE.ExtrudeGeometry(shape, {
+      depth: h, bevelEnabled: false,
+    });
+    // Planar top-down UVs: rooftop gets its real NAIP pixels, walls get the
+    // column of texture at their (x,y) — the roof extruded downward.
+    const pos = geom.attributes.position;
+    const uvs = new Float32Array(pos.count * 2);
+    for (let i = 0; i < pos.count; i++) {
+      uvs[2 * i + 0] = (pos.getX(i) - xmin) / xspan;
+      uvs[2 * i + 1] = (pos.getY(i) - ymin) / yspan;
+    }
+    geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    const mesh = new THREE.Mesh(geom, mat);
+    const groundZ = maxGroundZOverRing(s, ring);
+    mesh.position.z = (groundZ + LIFT_M) * Z_EXAG;
+    group.add(mesh);
+  }
+  scene.add(group);
 }
 
 function buildWater(s) {
@@ -255,6 +303,7 @@ async function main() {
   document.title = `Seantinel · ${label}`;
   buildTerrain(snap);
   buildWater(snap);
+  buildBuildings(snap);
   buildMarker(snap);
   frameCamera(snap);
   configureWaterSlider();

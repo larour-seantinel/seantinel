@@ -118,7 +118,7 @@ SITES = [
      "center": (33.8625476, -118.4019461),
      "half_m": 250, "fine_r": 100,
      "focus_radius": 60.0, "elev_max": 500,
-     "hmin": 2.0, "hmax": 30.0},
+     "hmin": 2.0, "hmax": 30.0, "buildings": True},
 ]
 
 
@@ -133,6 +133,19 @@ def _wgs84_bbox(center_lat, center_lon, half_m):
             m_per_deg_lon, m_per_deg_lat)
 
 
+def _aspect_size(east, west, north, south, long_px):
+    """Pixel size matching the bbox aspect in degrees.
+
+    ArcGIS ExportImage expands the bbox to square if size is square in degrees
+    (bbox is non-square because 1° lat != 1° lon). Match the aspect ratio and
+    the server returns our exact bbox.
+    """
+    aspect = (east - west) / (north - south)
+    if aspect >= 1:
+        return long_px, int(round(long_px / aspect))
+    return int(round(long_px * aspect)), long_px
+
+
 def _fetch_dem(slug, center, half_m):
     """USGS 3DEP DEM via ExportImage (CONUS, no auth). Cache keyed by extent."""
     import requests
@@ -143,19 +156,179 @@ def _fetch_dem(slug, center, half_m):
         print(f"  cached DEM: {tif} ({tif.stat().st_size} bytes)")
         return tif
     west, south, east, north, _, _ = _wgs84_bbox(*center, half_m)
+    w_px, h_px = _aspect_size(east, west, north, south, 1000)
     url = ("https://elevation.nationalmap.gov/arcgis/rest/services/"
            "3DEPElevation/ImageServer/exportImage")
     params = {
         "bbox": f"{west},{south},{east},{north}",
         "bboxSR": "4326", "imageSR": "4326",
-        "size": "1000,1000", "format": "tiff",
+        "size": f"{w_px},{h_px}", "format": "tiff",
         "pixelType": "F32", "f": "image",
     }
     r = requests.get(url, params=params, timeout=120)
     r.raise_for_status()
     tif.write_bytes(r.content)
-    print(f"  fetched DEM: {tif} ({len(r.content)} bytes)")
+    print(f"  fetched DEM: {tif} ({len(r.content)} bytes, size={w_px}x{h_px})")
     return tif
+
+
+def _fetch_hag_raster(slug, center, half_m):
+    """Microsoft Planetary Computer 3dep-lidar-hag (Height Above Ground, 2 m).
+
+    Returns (hag_array, transform=[sx, x0, sy, y0]) in UTM meters, or None if
+    no coverage or any step fails. Decompressed via gdal_translate (LERC).
+    """
+    import requests, subprocess
+    out_dir = ROOT / "data" / slug.capitalize()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    raw = out_dir / f"{slug}_hag_h{int(half_m)}.tif"
+    uncompressed = out_dir / f"{slug}_hag_h{int(half_m)}_raw.tif"
+    transform_cache = out_dir / f"{slug}_hag_h{int(half_m)}_tr.json"
+
+    if uncompressed.exists() and transform_cache.exists():
+        tr = json.loads(transform_cache.read_text())
+    else:
+        import math
+        lat0, lon0 = center
+        mpl = 110540.0 * math.cos(math.radians(lat0))
+        dlat = half_m / 110540.0
+        dlon = half_m / mpl
+        bbox = [lon0 - dlon, lat0 - dlat, lon0 + dlon, lat0 + dlat]
+        try:
+            r = requests.post(
+                "https://planetarycomputer.microsoft.com/api/stac/v1/search",
+                json={"collections": ["3dep-lidar-hag"], "bbox": bbox, "limit": 5},
+                timeout=60)
+            r.raise_for_status()
+            items = r.json().get("features", [])
+            if not items:
+                print(f"  HAG: no coverage for {slug}"); return None
+            item = items[0]
+            tr_full = item["properties"]["proj:transform"]
+            tr = [tr_full[0], tr_full[2], tr_full[4], tr_full[5]]  # sx, x0, sy, y0
+            if not raw.exists():
+                sign = requests.get(
+                    "https://planetarycomputer.microsoft.com/api/sas/v1/sign",
+                    params={"href": item["assets"]["data"]["href"]},
+                    timeout=60).json()
+                raw.write_bytes(requests.get(sign["href"], timeout=180).content)
+                print(f"  fetched HAG: {raw} ({raw.stat().st_size} bytes)")
+            subprocess.run(["gdal_translate", "-q", "-of", "GTiff",
+                            "-co", "COMPRESS=NONE", str(raw), str(uncompressed)],
+                           check=True)
+            transform_cache.write_text(json.dumps(tr))
+        except Exception as ex:
+            print(f"  HAG: failed ({ex}); will fall back to 7 m default")
+            return None
+
+    import numpy as np
+    from PIL import Image
+    arr = np.array(Image.open(uncompressed), dtype=np.float32)
+    arr = np.where(arr < -100, 0, arr)
+    print(f"  HAG raster: {arr.shape} transform={tr}")
+    return arr, tr
+
+
+def _apply_lidar_heights(buildings, center, hag_pkg):
+    """Replace each building's default h with 95th-pct HAG inside its polygon."""
+    if hag_pkg is None:
+        return
+    import utm
+    import numpy as np
+    from matplotlib.path import Path
+    hag, (sx, x0, sy, y0) = hag_pkg
+    lat0, lon0 = center
+    e0, n0, _, _ = utm.from_latlon(lat0, lon0)
+    nrows, ncols = hag.shape
+    hits = 0
+    for b in buildings:
+        ring = b["ring"]
+        es = [p[0] + e0 for p in ring]
+        ns = [p[1] + n0 for p in ring]
+        c_lo = max(0, int((min(es) - x0) / sx))
+        c_hi = min(ncols, int((max(es) - x0) / sx) + 1)
+        r_lo = max(0, int((max(ns) - y0) / sy))
+        r_hi = min(nrows, int((min(ns) - y0) / sy) + 1)
+        if c_hi <= c_lo or r_hi <= r_lo:
+            continue
+        rr, cc = np.mgrid[r_lo:r_hi, c_lo:c_hi]
+        pix_e = x0 + (cc + 0.5) * sx
+        pix_n = y0 + (rr + 0.5) * sy
+        pts = np.column_stack([pix_e.ravel(), pix_n.ravel()])
+        ring_utm = list(zip(es, ns))
+        mask = Path(ring_utm).contains_points(pts).reshape(rr.shape)
+        if mask.sum() == 0:
+            continue
+        vals = hag[r_lo:r_hi, c_lo:c_hi][mask]
+        vals = vals[vals > 0.5]
+        if len(vals) < 2:
+            continue
+        b["h"] = float(np.percentile(vals, 95))
+        hits += 1
+    print(f"  lidar heights: {hits}/{len(buildings)} buildings")
+
+
+def _fetch_osm_buildings(slug, center, half_m, mpl, mpa):
+    """Overpass API: way['building'] polygons in local x/y coords.
+
+    Returns a list of outer rings; each ring is a list of [x, y] pairs in the
+    same local tangent plane the mesh uses. Multipolygon relations ignored for
+    now (first pass — flat polygons only).
+    """
+    import requests
+    out_dir = ROOT / "data" / slug.capitalize()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    cache = out_dir / f"{slug}_osm_h{int(half_m)}.json"
+    if cache.exists() and cache.stat().st_size > 100:
+        print(f"  cached OSM: {cache} ({cache.stat().st_size} bytes)")
+        data = json.loads(cache.read_text())
+    else:
+        west, south, east, north, _, _ = _wgs84_bbox(*center, half_m)
+        q = (f'[out:json][timeout:60];'
+             f'(way["building"]({south},{west},{north},{east}););'
+             f'out body;>;out skel qt;')
+        headers = {"User-Agent": "seantinel/0.1 (eric.larour@gmail.com)"}
+        r = requests.post("https://overpass-api.de/api/interpreter",
+                          data={"data": q}, headers=headers, timeout=120)
+        r.raise_for_status()
+        data = r.json()
+        cache.write_text(json.dumps(data))
+        print(f"  fetched OSM: {cache} ({cache.stat().st_size} bytes)")
+
+    nodes = {e["id"]: (e["lon"], e["lat"]) for e in data["elements"]
+             if e["type"] == "node"}
+    lat0, lon0 = center
+    buildings = []
+    for e in data["elements"]:
+        if e["type"] != "way":
+            continue
+        refs = e.get("nodes", [])
+        if len(refs) < 3:
+            continue
+        ring = []
+        for nid in refs:
+            if nid not in nodes:
+                continue
+            lon, lat = nodes[nid]
+            ring.append([(lon - lon0) * mpl, (lat - lat0) * mpa])
+        if len(ring) < 3:
+            continue
+        tags = e.get("tags", {})
+        # OSM: building:levels is floor count, height is literal meters.
+        # 3 m per level is the usual residential/commercial assumption; 7 m
+        # fallback matches a 2-story default.
+        h = None
+        if "height" in tags:
+            try: h = float(str(tags["height"]).split()[0])
+            except ValueError: pass
+        if h is None and "building:levels" in tags:
+            try: h = float(tags["building:levels"]) * 3.0
+            except ValueError: pass
+        if h is None:
+            h = 7.0
+        buildings.append({"ring": ring, "h": h})
+    print(f"  OSM buildings: {len(buildings)} polygons")
+    return buildings
 
 
 def _fetch_naip(slug, center, half_m):
@@ -168,23 +341,25 @@ def _fetch_naip(slug, center, half_m):
         print(f"  cached imagery: {jpg} ({jpg.stat().st_size} bytes)")
         return jpg
     west, south, east, north, _, _ = _wgs84_bbox(*center, half_m)
+    w_px, h_px = _aspect_size(east, west, north, south, 4000)
     url = ("https://imagery.nationalmap.gov/arcgis/rest/services/"
            "USGSNAIPPlus/ImageServer/exportImage")
     params = {
         "bbox": f"{west},{south},{east},{north}",
         "bboxSR": "4326", "imageSR": "4326",
-        "size": "4000,4000", "format": "jpg", "f": "image",
+        "size": f"{w_px},{h_px}", "format": "jpg", "f": "image",
     }
     r = requests.get(url, params=params, timeout=120)
     r.raise_for_status()
     if r.content.startswith(b"{"):
         raise RuntimeError(f"NAIP returned JSON error: {r.content[:200]!r}")
     jpg.write_bytes(r.content)
-    print(f"  fetched imagery: {jpg} ({len(r.content)} bytes)")
+    print(f"  fetched imagery: {jpg} ({len(r.content)} bytes, size={w_px}x{h_px})")
     return jpg
 
 
-def _publish_site(slug, title, md, topo, imagery_file, bbox, focus_radius):
+def _publish_site(slug, title, md, topo, imagery_file, bbox, focus_radius,
+                  buildings=None):
     """Write the draped snapshot into public/data/<slug>.json for the website.
 
     Mirrors plot_web()'s payload but carries a `title` field and lives in a
@@ -205,9 +380,12 @@ def _publish_site(slug, title, md, topo, imagery_file, bbox, focus_radius):
         "imagery": imagery_file,
         "bbox": [float(b) for b in bbox],
     }
+    if buildings:
+        out["buildings"] = buildings
     path = SITE_OUT / f"{slug}.json"
     path.write_text(_json.dumps(out))
-    print(f"  publish_site -> {path.relative_to(ROOT)} (verts={len(out['x'])})")
+    extras = f" buildings={len(buildings)}" if buildings else ""
+    print(f"  publish_site -> {path.relative_to(ROOT)} (verts={len(out['x'])}{extras})")
 
 
 def _build_site(site):
@@ -294,8 +472,14 @@ def _build_site(site):
     # Website payload (tracked, served from /data/).
     naip_pub = SITE_OUT / f"{slug}_naip.jpg"
     shutil.copyfile(naip_src, naip_pub)
+    buildings = None
+    if site.get("buildings"):
+        buildings = _fetch_osm_buildings(slug, center, half_m, mpl, mpa)
+        hag_pkg = _fetch_hag_raster(slug, center, half_m)
+        _apply_lidar_heights(buildings, center, hag_pkg)
     _publish_site(slug, title, md, topo, f"{slug}_naip.jpg",
-                  [xmin, ymin, xmax, ymax], site["focus_radius"])
+                  [xmin, ymin, xmax, ymax], site["focus_radius"],
+                  buildings=buildings)
 
 
 def _step_for(site):

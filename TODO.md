@@ -4,18 +4,20 @@ Shipped work moved to [DONE.md](DONE.md). Pull in on demand.
 
 ## In Progress
 
-- Buildings layer: fetch OSM `building=*` polygons via Overpass API for `hermosa_closeup` bbox, render as flat polygons on top of the terrain mesh (first pass — no extrusion yet).
+- Verify textured-building scene on `hermosa_closeup` from a few orbit angles; decide whether we want any per-face shading beyond the planar NAIP drape.
 
 ## Next Up — Seantinel core
 
-- After flat polygons land: extrude by `building:levels × 3 m` (fallback 7 m) as a Three.js `ExtrudeGeometry` layer.
+- Push the buildings + aspect-ratio fix to Cloudflare once we're happy with the look (currently local-only — Eric wants to experiment first).
+- Fix hermosa + redondo mesh/NAIP alignment: re-run step 1 and 2 now that `_aspect_size` is in place (DEM and NAIP both compress ~10% N–S at the old pixel aspect, so coastal detail is slightly off even without OSM overlay).
 - Take pictures of Long Beach, Torrance, Redondo and Hermosa Beach.
 - Generate QR codes for existing sites (`site.html?loc=hermosa` / `?loc=redondo` / `?loc=hermosa_closeup`). URL shape is already settled on slug.
 - Verify Redondo scene end-to-end on-device (same ocean/spike fixes applied; only Hermosa was eyeballed).
-- Add `hermosa_closeup` card to landing page once buildings land.
+- Add `hermosa_closeup` card to landing page.
 - Layer a 1 m/px inner NAIP tile (±500 m around center) over the current 4000² base — base is now ~1.25 m/px, but a sharper pier-area tile would still help.
 - Investigate 3DEP ExportImage TIFF corruption at ≥2000×2000 — PIL reads it as float garbage. Would unlock higher-res DEMs. Likely rasterio solves it.
 - Add more coastal sites (Long Beach, Torrance, Palos Verdes) — just needs lat/lon entries in `SITES` in `scripts/runme.py` (remember to pick `elev_max` for the site's max real elevation).
+- Enable buildings on more sites: set `"buildings": True` in `SITES`. HAG tile size scales with box; may need multi-tile mosaicing for `half_m > 1000`.
 - Decide custom domain: `seantinel.app` (~$15/yr) vs stay on free `seantinel.pages.dev`.
 
 ## Nice to have
