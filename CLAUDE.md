@@ -60,9 +60,11 @@ Three artifacts live, Seantinel core underway.
 
 **Live now on `seantinel.org`**: five sites — Hermosa, Redondo, Hermosa close-up, Manhattan Beach Pier (CONUS, full 3-layer stack with ~17k buildings), Mar del Plata (Argentina, 2-layer stack with buildings at fallback height). All at 1:1 Z. Zoom clamped to 20–4000 m. Linear depth with per-frame near/far keyed to camera distance. Building walls on `DoubleSide`. Landing page author credit + EN/ES toggle + ocean background + lighthouse icon.
 
-**Payload**: hermosa ships as `hermosa.json` (1.5 KB header) + `hermosa.bin` (1.34 MB Int16-quantized sidecar) instead of 5.4 MB plain JSON — 4× smaller download, 5 cm round-trip precision. `src/site.js` falls back to legacy nested-array JSON if `binary` key is absent, so remaining 4 sites still work until re-run through the pipeline.
+**Payload**: all five sites now ship as `<slug>.json` (1–1.5 KB header) + `<slug>.bin` (Int16-quantized sidecar, 140 KB – 1.34 MB) + `<slug>_naip.webp` (2.1–2.9 MB at q=80 vs 3.5–4.5 MB JPG) — ~4× smaller than the original nested-array JSON, ~40% smaller imagery than JPG, 5 cm round-trip precision. Hermosa total wire size: ~9.4 MB → ~3.7 MB.
 
-Next step: multi-tile HAG mosaicing (fix Redondo + Manhattan coverage), QR codes, more coastal sites — see TODO.md.
+**Legal/UX**: viewer pages carry a two-pill `#info-strip` in the lower-left — orange `⚠ Disclaimer` + blue `Data & credits`. Each opens a modal with a three-paragraph disclaimer (slider-set level is not a projection; list of unmodeled processes; as-is / no-warranty / no-reliance) or data sources + authors + contact. Shared `.info-modal` CSS, `wireModal(teaserId, modalId)` JS helper, EN + ES.
+
+Next step: multi-tile HAG mosaicing (fix Redondo + Manhattan coverage), QR codes, landing-page disclaimer link, more coastal sites — see TODO.md.
 
 Shipped history and build details live in [DONE.md](DONE.md) and
 [LEARNINGS-archive.md](LEARNINGS-archive.md) — not auto-loaded.

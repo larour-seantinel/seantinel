@@ -218,6 +218,21 @@ Live notes. Shipped ISSM native-stack / APK / 3D rendering details live in
 - 2026-11-01: **Download is now bottlenecked by the main NAIP JPG** (3.8 MB at 4000² for Hermosa). WebP at same visual quality is typically 30–40% smaller → `~2.5 MB`. Combined with quality=80, could push total payload to ~3.5 MB per site, roughly halving load time on 3G/4G.
 - 2026-11-01: **Memory impact is less than download impact.** Peak-during-load drops ~18 MB → ~3 MB (no 5.4 MB JSON string + nested-array parse graph). But steady-state is roughly unchanged (~13 MB vs 18 MB) because `hydrateBinary` reconstructs the `buildings` array as `{ring: [[x,y],...], h}` objects to match the old shape. Rewriting `buildBuildings()` to iterate flat typed arrays directly would cut steady-state to ~3 MB — not done yet, ~40-line patch.
 
+## WebP imagery
+
+- 2026-11-01: **`pkg install libwebp` on Termux gives `cwebp`** — Pillow's Termux build has WebP support disabled, so the simplest encoder path is `subprocess.run(["cwebp", "-q", "80", src, "-o", out, "-quiet"])`. Writing to `/tmp` fails silently on Termux (app sandbox); write anywhere under `~` instead.
+- 2026-11-01: **4000² Esri JPG → WebP q=80 saves ~40%**. Hermosa main NAIP: 3.97 MB → 2.40 MB. Super-far 1024² thumbnails: 210 KB → 117 KB (44%). All five sites' main tiles 3.5–4.5 MB JPG → 2.1–2.9 MB WebP. Three.js `TextureLoader` uses the browser's native image decoder — WebP works unchanged in Chrome, Firefox, Safari ≥14.
+- 2026-11-01: **Pipeline keeps cached JPG from Esri**, only converts for the public payload. `_publish_imagery(src_jpg, out_webp, quality=80)` shell-outs to `cwebp` at publish time; original JPG stays in `data/<Slug>/` for cache invalidation. Three call sites updated: main NAIP, farfield, superfarfield. `.gitignore` whitelists `!public/data/*.webp`.
+- 2026-11-01: **Cloudflare serves `image/webp` content-type correctly** without any config — the extension is enough. `cf-cache-status: MISS` on first hit, then cached per-region.
+
+## Viewer info panels
+
+- 2026-11-01: **Dark-text credit over the ocean renders unreadable** — the `#credit` line sat at `left: 10px; bottom: 10px` with `color: #7a8a99` on top of a blue water plane. Hid under glare at low sun angles and against the opaque water material. Solution: tuck credits + author/contact into a `data-modal`, trigger from a small blue "Data & credits" pill in the lower-left.
+- 2026-11-01: **Legal disclaimer pattern**: two-step disclosure. Short pill `⚠ Disclaimer` always visible → click opens full three-paragraph modal (not-a-projection / unmodeled processes / as-is + no-warranty + no-reliance). Standard enough for a public outreach site; the modal covers IPCC/NOAA/NASA non-endorsement, authors + employer + affiliated-institution liability shield, and third-party data pass-through (USGS 3DEP, Copernicus, OSM, MS PC, Esri).
+- 2026-11-01: **Teaser pills in horizontal `#info-strip` flex row** at `bottom: 10px; left: 10px`. First attempt stacked them vertically with the orange teaser at `bottom: 42px`; the long "Illustrative only — not a projection" text wrapped on narrow (phone portrait) viewports and the second line slid behind the lower-right `#water-panel`. Shortening the teaser to `⚠ Disclaimer` + a flex-row container is a one-shot fix with no media queries. `white-space: nowrap` on each pill ensures no re-wrap.
+- 2026-11-01: **Shared `.info-modal` / `.info-card` / `.info-close` classes** cover both modals; only the teaser pill colors differ (orange for warn, blue for info). Keeps the stylesheet short — ~40 lines for both. `wireModal(teaserId, modalId)` helper in `site.js` handles open/close/Esc/backdrop-click for both.
+- 2026-11-01: **Vite dev server can silently die** mid-session (parent shell terminated or OOM); `curl` returns HTTP 000 and `pgrep -af vite` shows nothing. Just `npm run dev` again. Not a code bug; happens occasionally on Termux.
+
 ## Things that didn't work
 
 - 2026-10-22: Claude Code `statusLine` config in `settings.json` outputs to Claude Code's own TUI — not to GNU screen's hardstatus. Different mechanisms; don't conflate.
