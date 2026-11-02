@@ -1155,16 +1155,12 @@ def _apply_ocean_mask(x, y, topo, ocean_exp, land_exp=None, far_layer=False):
     import numpy as np
     topo = np.asarray(topo, dtype=float).copy()
     if ocean_exp is None:
-        if far_layer:
-            return np.where(topo < 1.0, 0.0, topo)
         return np.where(topo < 1.0, -5.0, topo)
     ocean = _ocean_flags(x, y, ocean_exp)
     if land_exp is not None:
         ocean &= ~_ocean_flags(x, y, land_exp)
-    if far_layer:
-        topo[ocean] = 0.0
-    else:
-        topo[ocean] = -5.0
+    topo[ocean] = -5.0
+    if not far_layer:
         land = ~ocean
         topo[land] = np.maximum(topo[land], 0.1)
     return topo

@@ -55,7 +55,7 @@ function initScene() {
   controls.enableDamping = true;
   controls.maxPolarAngle = (85 * Math.PI) / 180;
   controls.minDistance = 20;
-  controls.maxDistance = 1e6;
+  controls.maxDistance = 4000;
 
   (function tick() {
     controls.update();
@@ -87,17 +87,31 @@ function buildTerrain(s) {
     positions[3 * i + 1] = y[i];
     positions[3 * i + 2] = z[i] * Z_EXAG;
   }
+  // Drop triangles that mix ocean sentinel verts (z <= -2.5) with land verts.
+  // Linear z interpolation across such a triangle would otherwise poke part of
+  // the aerial drape above the water plane. Water plane fills the gap.
+  const isOcean = (k) => z[k] <= -2.5;
+  const keep = (a, b, c) => !(
+    (isOcean(a) || isOcean(b) || isOcean(c)) &&
+    (!isOcean(a) || !isOcean(b) || !isOcean(c))
+  );
   let idx;
   if (s.elements_flat) {
-    idx = s.elements_flat; // Uint32Array, already 0-indexed, length 3*ne
+    const src = s.elements_flat;
+    const buf = [];
+    for (let j = 0; j < src.length; j += 3) {
+      const a = src[j], b = src[j + 1], c = src[j + 2];
+      if (keep(a, b, c)) buf.push(a, b, c);
+    }
+    idx = new Uint32Array(buf);
   } else {
     const ne = s.elements.length;
-    idx = new Uint32Array(ne * 3);
+    const buf = [];
     for (let j = 0; j < ne; j++) {
-      idx[3 * j + 0] = s.elements[j][0] - 1;
-      idx[3 * j + 1] = s.elements[j][1] - 1;
-      idx[3 * j + 2] = s.elements[j][2] - 1;
+      const a = s.elements[j][0] - 1, b = s.elements[j][1] - 1, c = s.elements[j][2] - 1;
+      if (keep(a, b, c)) buf.push(a, b, c);
     }
+    idx = new Uint32Array(buf);
   }
 
   const [xmin, ymin, xmax, ymax] = s.bbox;
@@ -348,6 +362,11 @@ function buildGridLayer(layer, holeBbox, sinkM) {
   const inHole = (i, j) =>
     xs[i] > hxmin && xs[i] < hxmax && ys[j] > hymin && ys[j] < hymax;
   const isLand = (i, j) => z[j * nx + i] > 0;
+  const isOcean = (k) => z[k] <= -2.5;
+  const keep = (a, b, c) => !(
+    (isOcean(a) || isOcean(b) || isOcean(c)) &&
+    (!isOcean(a) || !isOcean(b) || !isOcean(c))
+  );
   const tris = [];
   for (let j = 0; j < ny - 1; j++) {
     for (let i = 0; i < nx - 1; i++) {
@@ -358,7 +377,8 @@ function buildGridLayer(layer, holeBbox, sinkM) {
       const b = j * nx + i + 1;
       const c = (j + 1) * nx + i;
       const d = (j + 1) * nx + i + 1;
-      tris.push(a, b, d, a, d, c);
+      if (keep(a, b, d)) tris.push(a, b, d);
+      if (keep(a, d, c)) tris.push(a, d, c);
     }
   }
   const idx = new Uint32Array(tris);
@@ -541,7 +561,6 @@ async function main() {
   buildTerrain(snap);
   buildWater(snap);
   buildBuildings(snap);
-  buildOceanOutline(snap);
   buildMarker(snap);
   frameCamera(snap);
   configureWaterSlider();
