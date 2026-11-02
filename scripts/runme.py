@@ -554,14 +554,114 @@ def _publish_site(slug, title, md, topo, imagery_file, bbox, focus_radius,
         out["farfield"] = farfield
     if superfarfield:
         out["superfarfield"] = superfarfield
-    path = SITE_OUT / f"{slug}.json"
-    path.write_text(_json.dumps(out))
+    json_path, bin_path = _write_site_binary(slug, out)
     extras = f" buildings={len(buildings)}" if buildings else ""
     if farfield:
         extras += f" farfield={farfield['nx']}x{farfield['ny']}"
     if superfarfield:
         extras += f" superfarfield={superfarfield['nx']}x{superfarfield['ny']}"
-    print(f"  publish_site -> {path.relative_to(ROOT)} (verts={len(out['x'])}{extras})")
+    print(f"  publish_site -> {json_path.relative_to(ROOT)} + "
+          f"{bin_path.relative_to(ROOT)} "
+          f"(verts={len(out['x'])}{extras}, "
+          f"hdr={json_path.stat().st_size:,}B, "
+          f"bin={bin_path.stat().st_size:,}B)")
+
+
+_DTYPE_BYTES = {"i16": 2, "u16": 2, "u32": 4}
+
+
+def _write_site_binary(slug, out):
+    """Pack hot numeric arrays as a quantized Int16/Uint16/Uint32 sidecar.
+
+    Produces <slug>.json (header, tiny) + <slug>.bin (payload). Scales chosen
+    to give ~0.1 m horizontal and ~0.1 m vertical precision across the inner
+    mesh and 10 m at super-far scale. Over Float32 JSON text this is ~5× size
+    reduction; over the former Float64 JSON it's ~10×.
+    """
+    import json as _json
+    import numpy as np
+
+    pieces = []
+    descriptors = {}
+    cursor = [0]
+
+    def add(name, data, dtype, scale=None):
+        if dtype in ("i16", "u16"):
+            arr = np.asarray(data, dtype=np.float64) / scale
+            if dtype == "i16":
+                q = np.round(arr).clip(-32768, 32767).astype("<i2")
+            else:
+                q = np.round(arr).clip(0, 65535).astype("<u2")
+            b = q.tobytes()
+        elif dtype == "u32":
+            b = np.asarray(data, dtype="<u4").tobytes()
+        else:
+            raise ValueError(dtype)
+        pad = (-cursor[0]) % 4
+        if pad:
+            pieces.append(b"\x00" * pad)
+            cursor[0] += pad
+        d = {"off": cursor[0], "n": len(b) // _DTYPE_BYTES[dtype], "dtype": dtype}
+        if scale is not None:
+            d["scale"] = scale
+        descriptors[name] = d
+        pieces.append(b)
+        cursor[0] += len(b)
+
+    add("x", out["x"], "i16", 0.1)
+    add("y", out["y"], "i16", 0.1)
+    add("field", out["field"], "i16", 0.1)
+    el = np.asarray(out["elements"], dtype=np.int64) - 1  # 1-indexed → 0-indexed
+    add("elements", el.flatten(), "u32")
+
+    buildings = out.get("buildings") or []
+    if buildings:
+        ring_offsets = [0]
+        coords = []
+        heights = []
+        for b in buildings:
+            ring = b["ring"]
+            for p in ring:
+                coords.append(p[0])
+                coords.append(p[1])
+            ring_offsets.append(len(coords) // 2)
+            heights.append(b["h"])
+        add("rings", coords, "i16", 0.1)
+        add("ring_offsets", ring_offsets, "u32")
+        add("heights", heights, "u16", 0.01)
+
+    ff = out.get("farfield")
+    if ff:
+        add("farfield_xs", ff["xs"], "i16", 1.0)
+        add("farfield_ys", ff["ys"], "i16", 1.0)
+        add("farfield_z", ff["z"], "i16", 0.1)
+
+    sf = out.get("superfarfield")
+    if sf:
+        add("super_xs", sf["xs"], "i16", 10.0)
+        add("super_ys", sf["ys"], "i16", 10.0)
+        add("super_z", sf["z"], "i16", 0.1)
+
+    bin_path = SITE_OUT / f"{slug}.bin"
+    with open(bin_path, "wb") as f:
+        for piece in pieces:
+            f.write(piece)
+
+    header = {k: v for k, v in out.items()
+              if k not in {"x", "y", "field", "elements", "buildings"}}
+    header["binary"] = f"{slug}.bin"
+    header["arrays"] = descriptors
+    header["buildings_n"] = len(buildings)
+    if ff:
+        header["farfield"] = {k: v for k, v in ff.items()
+                              if k not in {"xs", "ys", "z"}}
+    if sf:
+        header["superfarfield"] = {k: v for k, v in sf.items()
+                                   if k not in {"xs", "ys", "z"}}
+
+    json_path = SITE_OUT / f"{slug}.json"
+    json_path.write_text(_json.dumps(header))
+    return json_path, bin_path
 
 
 def _build_grid_layer(site, cfg, key):

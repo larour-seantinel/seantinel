@@ -79,7 +79,7 @@ function clampedZ(zArr) {
 }
 
 function buildTerrain(s) {
-  const x = s.x, y = s.y, z = clampedZ(s.field), elts = s.elements;
+  const x = s.x, y = s.y, z = clampedZ(s.field);
   const nv = x.length;
   const positions = new Float32Array(nv * 3);
   for (let i = 0; i < nv; i++) {
@@ -87,12 +87,17 @@ function buildTerrain(s) {
     positions[3 * i + 1] = y[i];
     positions[3 * i + 2] = z[i] * Z_EXAG;
   }
-  const ne = elts.length;
-  const idx = new Uint32Array(ne * 3);
-  for (let j = 0; j < ne; j++) {
-    idx[3 * j + 0] = elts[j][0] - 1;
-    idx[3 * j + 1] = elts[j][1] - 1;
-    idx[3 * j + 2] = elts[j][2] - 1;
+  let idx;
+  if (s.elements_flat) {
+    idx = s.elements_flat; // Uint32Array, already 0-indexed, length 3*ne
+  } else {
+    const ne = s.elements.length;
+    idx = new Uint32Array(ne * 3);
+    for (let j = 0; j < ne; j++) {
+      idx[3 * j + 0] = s.elements[j][0] - 1;
+      idx[3 * j + 1] = s.elements[j][1] - 1;
+      idx[3 * j + 2] = s.elements[j][2] - 1;
+    }
   }
 
   const [xmin, ymin, xmax, ymax] = s.bbox;
@@ -422,6 +427,56 @@ function getLocSlug() {
   return (p.get('loc') || 'hermosa').replace(/[^a-z0-9_-]/gi, '');
 }
 
+// Decode one quantized array from the sidecar ArrayBuffer. Integer dtypes
+// without a scale (indices) are returned as-is; scaled dtypes are promoted to
+// Float32 so downstream code treats them like the old plain-array positions.
+function decodeArray(buf, d) {
+  const Ctor = { i16: Int16Array, u16: Uint16Array, u32: Uint32Array }[d.dtype];
+  const raw = new Ctor(buf, d.off, d.n);
+  if (d.scale == null) return raw;
+  const out = new Float32Array(d.n);
+  const s = d.scale;
+  for (let i = 0; i < d.n; i++) out[i] = raw[i] * s;
+  return out;
+}
+
+async function hydrateBinary(snap) {
+  const binRes = await fetch(`data/${snap.binary}`);
+  if (!binRes.ok) throw new Error(`binary HTTP ${binRes.status}`);
+  const buf = await binRes.arrayBuffer();
+  const a = snap.arrays;
+  snap.x = decodeArray(buf, a.x);
+  snap.y = decodeArray(buf, a.y);
+  snap.field = decodeArray(buf, a.field);
+  snap.elements_flat = decodeArray(buf, a.elements);
+  if (snap.buildings_n > 0) {
+    const rings = decodeArray(buf, a.rings);
+    const offs = decodeArray(buf, a.ring_offsets);
+    const hs = decodeArray(buf, a.heights);
+    const buildings = new Array(snap.buildings_n);
+    for (let i = 0; i < snap.buildings_n; i++) {
+      const start = offs[i], end = offs[i + 1];
+      const n = end - start;
+      const ring = new Array(n);
+      for (let j = 0; j < n; j++) {
+        ring[j] = [rings[2 * (start + j)], rings[2 * (start + j) + 1]];
+      }
+      buildings[i] = { ring, h: hs[i] };
+    }
+    snap.buildings = buildings;
+  }
+  if (snap.farfield) {
+    snap.farfield.xs = decodeArray(buf, a.farfield_xs);
+    snap.farfield.ys = decodeArray(buf, a.farfield_ys);
+    snap.farfield.z = decodeArray(buf, a.farfield_z);
+  }
+  if (snap.superfarfield) {
+    snap.superfarfield.xs = decodeArray(buf, a.super_xs);
+    snap.superfarfield.ys = decodeArray(buf, a.super_ys);
+    snap.superfarfield.z = decodeArray(buf, a.super_z);
+  }
+}
+
 async function main() {
   applyI18n();
   mountLangToggle(document.body);
@@ -432,6 +487,7 @@ async function main() {
     const res = await fetch(`data/${slug}.json`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     snap = await res.json();
+    if (snap.binary) await hydrateBinary(snap);
   } catch (e) {
     setStatus(t('site.error') + e.message);
     return;

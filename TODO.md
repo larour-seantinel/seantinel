@@ -10,6 +10,9 @@ Shipped work moved to [DONE.md](DONE.md). Pull in on demand.
 - Take pictures of Long Beach, Torrance, Redondo and Hermosa Beach (Manhattan Beach Pier done — 29 photos in `data/manhattan_pier/photos/`, gitignored).
 - Generate QR codes for existing sites (`site.html?loc=hermosa` / `?loc=redondo` / `?loc=manhattan` / `?loc=mardelplata` / `?loc=hermosa_closeup`). URL shape is already settled on slug.
 - Add `hermosa_closeup` card to landing page.
+- **WebP for main NAIP imagery.** Now the dominant payload (3.8 MB JPG → ~2.5 MB WebP at same quality, ~1.8 MB at quality=80). One line in `_fetch_imagery_esri`: save as `.webp` via Pillow. Three.js reads WebP natively. After binary payload swap this is the next biggest wire-size win.
+- **Rebuild remaining 4 sites through binary pipeline.** `redondo`, `hermosa_closeup`, `manhattan`, `mardelplata` are still JSON-text format (JS has fallback so they render fine). Needs a `scripts/runme.py` run per site to produce `.bin` + replace `.json`. Each rebuild also re-fetches DEM + imagery + buildings.
+- **Flat-array `buildBuildings()`.** Steady memory for the viewer is still ~13 MB because `hydrateBinary` reconstructs `buildings` as array of `{ring: [[x,y],...], h}` objects. Rewrite `buildBuildings()` to iterate `rings` / `ring_offsets` / `heights` typed arrays directly — cuts steady memory to ~3 MB. Not blocking; do when memory shows up as a problem on low-end phones.
 - Layer a 1 m/px inner NAIP tile (±500 m around center) over the current 4000² base — base is now ~1.25 m/px, but a sharper pier-area tile would still help.
 - Investigate 3DEP ExportImage TIFF corruption at ≥2000×2000 — PIL reads it as float garbage. Would unlock higher-res DEMs. Likely rasterio solves it.
 - Add more coastal sites (Long Beach, Torrance, Palos Verdes) — just needs lat/lon entries in `SITES` in `scripts/runme.py` (remember `elev_max` and `"buildings": True`).

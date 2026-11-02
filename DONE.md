@@ -4,6 +4,8 @@ Shipped work. Not auto-loaded. Reach for it if you need to know whether a
 milestone has been crossed; otherwise ignore.
 
 ## Seantinel viewer
+- 2026-11-01: Binary site payload — Int16-quantized `.bin` sidecar + tiny JSON header. Hermosa: 5.37 MB JSON → 1.34 MB bin + 1.5 KB header (4× smaller). Scales at 0.1 m horizontal / 0.1 m vertical for inner mesh, 10 m for super-far. 5 cm round-trip precision. Python `_write_site_binary` in `scripts/runme.py`; JS `hydrateBinary` in `src/site.js` with JSON-text fallback.
+- 2026-11-01: Statusline reset countdown — `7d:X% (Yd Zh)` to next Tuesday 03:00 local in `~/.claude/statusline-command.sh`.
 - 2026-10-31: Building wall "transparency" fixed. Was back-face culling on CW OSM rings; switched buildings mesh to `side: DoubleSide`.
 - 2026-10-31: Layer-seam blue water bands fixed (ocean side). Hole-cut now culls a cell only when it overlaps the shrunk hole AND has a dry-land corner; shrink capped at `holeWidth × 0.25`. All-ocean straddling cells stay, water plane hides them.
 - 2026-10-31: Zoom clamped to `[20, 4000]` m via `OrbitControls.min/maxDistance` so users can't zoom out far enough to see residual layer-seam artifacts.

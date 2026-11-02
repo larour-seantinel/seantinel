@@ -60,6 +60,8 @@ Three artifacts live, Seantinel core underway.
 
 **Live now on `seantinel.org`**: five sites — Hermosa, Redondo, Hermosa close-up, Manhattan Beach Pier (CONUS, full 3-layer stack with ~17k buildings), Mar del Plata (Argentina, 2-layer stack with buildings at fallback height). All at 1:1 Z. Zoom clamped to 20–4000 m. Linear depth with per-frame near/far keyed to camera distance. Building walls on `DoubleSide`. Landing page author credit + EN/ES toggle + ocean background + lighthouse icon.
 
+**Payload**: hermosa ships as `hermosa.json` (1.5 KB header) + `hermosa.bin` (1.34 MB Int16-quantized sidecar) instead of 5.4 MB plain JSON — 4× smaller download, 5 cm round-trip precision. `src/site.js` falls back to legacy nested-array JSON if `binary` key is absent, so remaining 4 sites still work until re-run through the pipeline.
+
 Next step: multi-tile HAG mosaicing (fix Redondo + Manhattan coverage), QR codes, more coastal sites — see TODO.md.
 
 Shipped history and build details live in [DONE.md](DONE.md) and

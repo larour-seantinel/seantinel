@@ -204,6 +204,20 @@ Live notes. Shipped ISSM native-stack / APK / 3D rendering details live in
 
 - 2026-11-01: **Manhattan Beach Pier high-res photo set.** 29 Samsung-camera JPGs taken on-pier (11:54–11:58 Nov 1), copied to `data/manhattan_pier/photos/` (~283 MB total, gitignored under `data/`). EXIF GPS clusters around (33.8838, -118.4133) matching the pier center we passed to `SITES`. Use PIL `_getexif()` + `GPSTAGS` to extract — fast enough to verify a whole batch in one pass. Framing guidance given to Eric: landscape, 4:3, ~1 m above deck, 30° overlap. Scope for a photogrammetry/texture-overlay feature is undefined — park under TODO Aspirational.
 
+## Statusline
+
+- 2026-11-01: **7-day limit reset countdown** in `~/.claude/statusline-command.sh`. Resets Tuesday 03:00 local. Python block computes `secs = (next_Tuesday_03:00 - now).total_seconds()`, splits into `days, hours = divmod(secs, 86400); hours = rem // 3600`. Format: `(Xd Yh)` or `(Yh)` under a day. Appends after `7d:${WEEK}%` as `7d:84% (1d 10h)`. If reset day/time changes, edit the `now.replace(hour=3, minute=0, …)` and `(1 - now.weekday()) % 7` (Tuesday=1).
+
+## Binary site payload
+
+- 2026-11-01: **Int16-quantized `.bin` sidecar** replaces per-site JSON text for hot numeric arrays. Hermosa: 5.37 MB JSON → 1.34 MB `.bin` + 1.5 KB JSON header = **4× smaller download**. Round-trip precision 5 cm at scale=0.1 (half a quantization step), well below 1 m aerial pixel size. Imagery JPGs unchanged — total payload per site 9.4 MB → 5.6 MB.
+- 2026-11-01: **Why not Float16.** Half-precision has 10-bit mantissa → precision scales with magnitude. At the ±2500 m mesh edge, Float16 snaps to a ~2 m grid, visible against 1.25 m/px NAIP. Int16 with per-attribute `scale`+`offset` gives uniform ~7.6 cm precision across the full extent regardless of distance from origin (same scheme as glTF `KHR_mesh_quantization`). Same 2 bytes/value.
+- 2026-11-01: **Scales chosen per use case.** Inner mesh XY and building rings: 0.1 m (int16 ±3276 m — safe for 2500 m half). Topo / farfield.z: 0.1 m. Farfield XY: 1.0 m (10 km extent). Super-farfield XY: 10.0 m (200 km extent). Building heights: 0.01 m uint16 (0–655 m). Elements: uint32 (0-indexed; convert from ISSM 1-indexed on the Python side).
+- 2026-11-01: **Binary layout.** Pure concatenation of typed arrays with 4-byte padding between entries so `new TypedArray(buf, off, n)` is always byte-aligned. Header JSON lists each array as `{off, n, dtype, scale}` under `arrays.<name>`. One `fetch` for `.json`, one for `.bin` — `arrayBuffer()` → `new Int16Array(buf, off, n)` → multiply by scale into a `Float32Array`.
+- 2026-11-01: **Backward-compat path kept** in `site.js`. If `snap.binary` is absent, `buildTerrain` falls back to the nested-array `s.elements[j][k] - 1` conversion. Lets JS deploy before all sites are rebuilt through the new pipeline.
+- 2026-11-01: **Download is now bottlenecked by the main NAIP JPG** (3.8 MB at 4000² for Hermosa). WebP at same visual quality is typically 30–40% smaller → `~2.5 MB`. Combined with quality=80, could push total payload to ~3.5 MB per site, roughly halving load time on 3G/4G.
+- 2026-11-01: **Memory impact is less than download impact.** Peak-during-load drops ~18 MB → ~3 MB (no 5.4 MB JSON string + nested-array parse graph). But steady-state is roughly unchanged (~13 MB vs 18 MB) because `hydrateBinary` reconstructs the `buildings` array as `{ring: [[x,y],...], h}` objects to match the old shape. Rewriting `buildBuildings()` to iterate flat typed arrays directly would cut steady-state to ~3 MB — not done yet, ~40-line patch.
+
 ## Things that didn't work
 
 - 2026-10-22: Claude Code `statusLine` config in `settings.json` outputs to Claude Code's own TUI — not to GNU screen's hardstatus. Different mechanisms; don't conflate.
