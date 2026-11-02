@@ -477,9 +477,29 @@ async function hydrateBinary(snap) {
   }
 }
 
+function wireModal(teaserId, modalId) {
+  const teaser = document.getElementById(teaserId);
+  const modal = document.getElementById(modalId);
+  if (!teaser || !modal) return;
+  const close = modal.querySelector('.info-close');
+  const open = () => { modal.hidden = false; };
+  const shut = () => { modal.hidden = true; };
+  teaser.addEventListener('click', open);
+  teaser.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+  });
+  close.addEventListener('click', shut);
+  modal.addEventListener('click', e => { if (e.target === modal) shut(); });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !modal.hidden) shut();
+  });
+}
+
 async function main() {
   applyI18n();
   mountLangToggle(document.body);
+  wireModal('disclaimer-teaser', 'disclaimer-modal');
+  wireModal('data-teaser', 'data-modal');
   setStatus(t('site.loading'));
   initScene();
   const slug = getLocSlug();

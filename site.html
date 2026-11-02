@@ -39,10 +39,54 @@
     }
     #water-label { font-family: monospace; font-size: 13px; color: #9cf; min-width: 48px; text-align: center; }
     #water-context { font-size: 11px; color: #cde; text-align: center; max-width: 120px; line-height: 1.3; min-height: 2.6em; }
-    #credit { position: fixed; left: 10px; bottom: 10px; font-size: 11px; color: #7a8a99; line-height: 1.5; }
-    #credit a { color: inherit; text-decoration: none; }
-    #credit a:hover { color: #cfe8ff; }
-    #credit .line2 { color: #8aa; }
+    #info-strip {
+      position: fixed; left: 10px; bottom: 10px; z-index: 2;
+      display: flex; flex-wrap: wrap; gap: 6px;
+    }
+    .info-teaser {
+      background: rgba(0,0,0,0.6);
+      border-radius: 4px;
+      padding: 5px 9px; font-size: 11px; line-height: 1.3;
+      cursor: pointer; white-space: nowrap;
+    }
+    #disclaimer-teaser {
+      color: #ffb77a;
+      border: 1px solid rgba(255,183,122,0.35);
+    }
+    #disclaimer-teaser:hover { color: #ffd0a0; border-color: #ffb77a; background: rgba(0,0,0,0.75); }
+    #data-teaser {
+      color: #9fbcd4;
+      border: 1px solid rgba(159,188,212,0.35);
+    }
+    #data-teaser:hover { color: #cfe8ff; border-color: #9fbcd4; background: rgba(0,0,0,0.75); }
+    .info-modal {
+      position: fixed; inset: 0; z-index: 10;
+      background: rgba(0,0,0,0.72);
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+    }
+    .info-modal[hidden] { display: none; }
+    .info-card {
+      background: #1a1f26; color: #cfe8ff;
+      max-width: 640px; max-height: 85vh; overflow-y: auto;
+      padding: 20px 24px 20px 24px; border-radius: 8px;
+      border: 1px solid #2a3038; position: relative;
+      font-size: 13px; line-height: 1.55;
+    }
+    .info-card h2 { margin: 0 0 12px 0; font-size: 16px; color: #ffd54a; }
+    .info-card h3 { margin: 14px 0 6px 0; font-size: 13px; color: #9cf; font-weight: normal; text-transform: uppercase; letter-spacing: 1px; }
+    .info-card p { margin: 0 0 10px 0; }
+    .info-card ul { margin: 0 0 8px 0; padding-left: 18px; }
+    .info-card li { margin-bottom: 4px; }
+    .info-card b { color: #e8f4ff; }
+    .info-card a { color: #9cf; text-decoration: none; }
+    .info-card a:hover { color: #fff; text-decoration: underline; }
+    .info-close {
+      position: absolute; top: 6px; right: 10px;
+      background: none; border: none; color: #cfe8ff;
+      font-size: 24px; cursor: pointer; line-height: 1; padding: 0 4px;
+    }
+    .info-close:hover { color: #fff; }
     .lang-toggle {
       position: fixed; top: 14px; right: 16px; z-index: 3;
       background: rgba(0, 0, 0, 0.55); color: #cfe8ff;
@@ -72,9 +116,34 @@
     <div id="water-label">—</div>
     <div id="water-context">&nbsp;</div>
   </div>
-  <div id="credit">
-    <div data-i18n="site.credit">Elevation: USGS 3DEP · Imagery: USGS NAIP</div>
-    <div class="line2"><span data-i18n="credit.by"></span> · <a href="mailto:seantinel.org@gmail.com">seantinel.org@gmail.com</a></div>
+  <div id="info-strip">
+    <div id="disclaimer-teaser" class="info-teaser" role="button" tabindex="0" data-i18n="disclaimer.teaser"></div>
+    <div id="data-teaser" class="info-teaser" role="button" tabindex="0" data-i18n="data.teaser"></div>
+  </div>
+  <div id="disclaimer-modal" class="info-modal" hidden>
+    <div class="info-card">
+      <button class="info-close" aria-label="Close">&times;</button>
+      <h2 data-i18n="disclaimer.title">Disclaimer</h2>
+      <p data-i18n-html="disclaimer.p1"></p>
+      <p data-i18n-html="disclaimer.p2"></p>
+      <p data-i18n-html="disclaimer.p3"></p>
+    </div>
+  </div>
+  <div id="data-modal" class="info-modal" hidden>
+    <div class="info-card">
+      <button class="info-close" aria-label="Close">&times;</button>
+      <h2 data-i18n="data.title">Data sources & credits</h2>
+      <h3 data-i18n="data.sources_header">Data sources</h3>
+      <ul>
+        <li data-i18n="data.elev"></li>
+        <li data-i18n="data.imagery"></li>
+        <li data-i18n="data.buildings"></li>
+        <li data-i18n="data.rendering"></li>
+      </ul>
+      <h3 data-i18n="data.credits_header">Credits</h3>
+      <p data-i18n="credit.by"></p>
+      <p><span data-i18n="credit.contact">Contact</span>: <a href="mailto:seantinel.org@gmail.com">seantinel.org@gmail.com</a></p>
+    </div>
   </div>
   <script type="module" src="/src/site.js"></script>
 </body>
