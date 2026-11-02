@@ -154,23 +154,9 @@ function makeLabelSprite(text) {
 }
 
 function buildOceanOutline(s) {
-  // Legacy single ring (back-compat)
-  if (s.ocean_outline && s.ocean_outline.length >= 2) {
-    addRing(s.ocean_outline, 0xff0033, 1.0);
-  }
-  if (!s.outlines) return;
-  // Three layers × ocean/land. Colors picked so you can tell them apart.
-  const layerCfg = {
-    inner:    { ocean: 0xff0033, land: 0xff66aa, z: 1.5 }, // red / pink
-    farfield: { ocean: 0xff8800, land: 0x00ffff, z: 2.0 }, // orange / cyan
-    super:    { ocean: 0xffff00, land: 0x00ff66, z: 2.5 }, // yellow / green
-  };
-  for (const [key, cfg] of Object.entries(layerCfg)) {
-    const layer = s.outlines[key];
-    if (!layer) continue;
-    for (const r of (layer.ocean || [])) addRing(r, cfg.ocean, cfg.z);
-    for (const r of (layer.land  || [])) addRing(r, cfg.land,  cfg.z);
-  }
+  if (!s.rings) return;
+  for (const r of (s.rings.ocean || [])) addRing(r, 0xff0033, 2.5); // red = water
+  for (const r of (s.rings.land  || [])) addRing(r, 0x00ffff, 2.5); // cyan = island
 }
 
 function addRing(pts, color, zOffset) {
