@@ -64,7 +64,9 @@ Three artifacts live, Seantinel core underway.
 
 **Legal/UX**: viewer pages carry a two-pill `#info-strip` in the lower-left — orange `⚠ Disclaimer` + blue `Data & credits`. Each opens a modal with a three-paragraph disclaimer (slider-set level is not a projection; list of unmodeled processes; as-is / no-warranty / no-reliance) or data sources + authors + contact. Shared `.info-modal` CSS, `wireModal(teaserId, modalId)` JS helper, EN + ES.
 
-Next step: multi-tile HAG mosaicing (fix Redondo + Manhattan coverage), QR codes, landing-page disclaimer link, more coastal sites — see TODO.md.
+**Ocean mask**: per-layer `.exp` polygon(s) built from OSM `natural=coastline`. Multi-chain assembly — every closed chain classified by signed shoelace area (CCW → island / land interior, CW → water interior) using OSM's "land-on-left" convention. Open chains clipped to the layer bounding box via Liang-Barsky, closed CW along the box perimeter using arc-length comparisons (handles wraparound). Hermosa super-far layer: 1 ocean polygon + 437 land polygons (Catalina + Channel Islands correctly excluded). `ContourToNodes(x,y,ocean.exp,2) & ~ContourToNodes(x,y,land.exp,2)` → ocean cells sunk to −5 m, land raised to ≥ 0.1 m. Only Hermosa rebuilt; Redondo/Manhattan/close-up/Mar del Plata still on the single-longest-chain polygon.
+
+Next step: multi-tile HAG mosaicing (fix Redondo + Manhattan coverage), roll new multi-chain mask through the other 4 sites, QR codes, landing-page disclaimer link, more coastal sites — see TODO.md.
 
 Shipped history and build details live in [DONE.md](DONE.md) and
 [LEARNINGS-archive.md](LEARNINGS-archive.md) — not auto-loaded.

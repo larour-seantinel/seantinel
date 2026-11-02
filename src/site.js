@@ -55,7 +55,7 @@ function initScene() {
   controls.enableDamping = true;
   controls.maxPolarAngle = (85 * Math.PI) / 180;
   controls.minDistance = 20;
-  controls.maxDistance = 4000;
+  controls.maxDistance = 1e6;
 
   (function tick() {
     controls.update();
@@ -151,6 +151,23 @@ function makeLabelSprite(text) {
   const sprite = new THREE.Sprite(mat);
   sprite.renderOrder = 10;
   return sprite;
+}
+
+function buildOceanOutline(s) {
+  if (!s.ocean_outline || s.ocean_outline.length < 2) return;
+  const pts = s.ocean_outline;
+  const positions = new Float32Array(pts.length * 3);
+  for (let i = 0; i < pts.length; i++) {
+    positions[3 * i + 0] = pts[i][0];
+    positions[3 * i + 1] = pts[i][1];
+    positions[3 * i + 2] = 1.0; // ~1 m above sea level, visible at slider=0
+  }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const mat = new THREE.LineBasicMaterial({ color: 0xff0033, depthTest: false });
+  const line = new THREE.Line(geom, mat);
+  line.renderOrder = 20;
+  scene.add(line);
 }
 
 function buildMarker(s) {
@@ -520,6 +537,7 @@ async function main() {
   buildTerrain(snap);
   buildWater(snap);
   buildBuildings(snap);
+  buildOceanOutline(snap);
   buildMarker(snap);
   frameCamera(snap);
   configureWaterSlider();

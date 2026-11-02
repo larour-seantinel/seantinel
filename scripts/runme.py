@@ -12,6 +12,7 @@ Usage:
     python3 scripts/runme.py 1 2 3          # run multiple
 """
 import json
+import math as _math
 import os
 import sys
 from pathlib import Path
@@ -540,7 +541,8 @@ def _publish_imagery(src_jpg, out_webp, quality=80):
 
 
 def _publish_site(slug, title, md, topo, imagery_file, bbox, focus_radius,
-                  buildings=None, farfield=None, superfarfield=None):
+                  buildings=None, farfield=None, superfarfield=None,
+                  ocean_outline=None):
     """Write the draped snapshot into public/data/<slug>.json for the website.
 
     Mirrors plot_web()'s payload but carries a `title` field and lives in a
@@ -567,6 +569,9 @@ def _publish_site(slug, title, md, topo, imagery_file, bbox, focus_radius,
         out["farfield"] = farfield
     if superfarfield:
         out["superfarfield"] = superfarfield
+    if ocean_outline is not None:
+        out["ocean_outline"] = [[round(float(p[0]), 1), round(float(p[1]), 1)]
+                                for p in ocean_outline]
     json_path, bin_path = _write_site_binary(slug, out)
     extras = f" buildings={len(buildings)}" if buildings else ""
     if farfield:
@@ -677,6 +682,392 @@ def _write_site_binary(slug, out):
     return json_path, bin_path
 
 
+def _fetch_osm_coastline(slug, center, half_m, mpl, mpa, label=None):
+    """Overpass: natural=coastline ways, in local tangent plane coords.
+
+    Returns a list of ways; each way is a list of (x, y) pairs. Direction is
+    preserved (OSM convention: land on left, water on right). Empty list if
+    the site has no coastline in its bbox. `label` goes into the cache name
+    so inner / farfield / super caches don't collide.
+    """
+    import requests
+    out_dir = ROOT / "data" / slug.capitalize()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tag = label or f"h{int(half_m)}"
+    cache = out_dir / f"{slug}_coast_{tag}.json"
+    if cache.exists() and cache.stat().st_size > 50:
+        print(f"  cached coastline: {cache} ({cache.stat().st_size} bytes)")
+        data = json.loads(cache.read_text())
+    else:
+        west, south, east, north, _, _ = _wgs84_bbox(*center, half_m)
+        q = (f'[out:json][timeout:60];'
+             f'way["natural"="coastline"]({south},{west},{north},{east});'
+             f'out geom;')
+        headers = {"User-Agent": "seantinel/0.1 (eric.larour@gmail.com)"}
+        r = requests.post("https://overpass-api.de/api/interpreter",
+                          data={"data": q}, headers=headers, timeout=120)
+        r.raise_for_status()
+        data = r.json()
+        cache.write_text(json.dumps(data))
+        print(f"  fetched coastline: {cache} ({cache.stat().st_size} bytes)")
+    lat0, lon0 = center
+    ways = []
+    for e in data.get("elements", []):
+        if e.get("type") != "way":
+            continue
+        geom = e.get("geometry", [])
+        pts = [((p["lon"] - lon0) * mpl, (p["lat"] - lat0) * mpa) for p in geom]
+        if len(pts) >= 2:
+            ways.append(pts)
+    print(f"  coastline ways: {len(ways)}")
+    return ways
+
+
+def _chain_ways(ways, tol=0.5):
+    """Join coastline ways end-to-end into one or more continuous polylines.
+
+    Matches each way's endpoints with others' at < `tol` meters. First pass
+    only chains forward (water-on-right convention preserved); doesn't flip
+    ways. For most coastal sites this handles the "coastline exits box, OSM
+    splits it into pieces" case cleanly.
+    """
+    def close(a, b):
+        return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 < tol * tol
+    remaining = [list(w) for w in ways]
+    chains = []
+    while remaining:
+        chain = remaining.pop(0)
+        extended = True
+        while extended:
+            extended = False
+            for i, w in enumerate(remaining):
+                if close(chain[-1], w[0]):
+                    chain.extend(w[1:])
+                    remaining.pop(i)
+                    extended = True
+                    break
+                if close(w[-1], chain[0]):
+                    chain = list(w[:-1]) + chain
+                    remaining.pop(i)
+                    extended = True
+                    break
+        chains.append(chain)
+    return chains
+
+
+def _liang_barsky(p1, p2, H):
+    """Clip segment (p1,p2) to [-H,H]^2. Returns (q1, q2, t0, t1) or None.
+
+    t0, t1 are the parametric points along the input segment where the clipped
+    endpoints lie (0=p1, 1=p2). Lets the caller detect "entered box here" vs
+    "exited box here" by checking t0 > 0 or t1 < 1.
+    """
+    x1, y1 = p1
+    x2, y2 = p2
+    dx, dy = x2 - x1, y2 - y1
+    t0, t1 = 0.0, 1.0
+    for p, q in ((-dx, x1 + H), (dx, H - x1), (-dy, y1 + H), (dy, H - y1)):
+        if p == 0:
+            if q < 0:
+                return None
+            continue
+        t = q / p
+        if p < 0:
+            if t > t1: return None
+            if t > t0: t0 = t
+        else:
+            if t < t0: return None
+            if t < t1: t1 = t
+    return ((x1 + t0 * dx, y1 + t0 * dy),
+            (x1 + t1 * dx, y1 + t1 * dy), t0, t1)
+
+
+def _clip_coastline(chain, H):
+    """Walk `chain` and emit the subsequence of points inside [-H,H]^2.
+
+    Inserts the exact entry/exit box-boundary intersection points. Assumes a
+    single enter/exit pair (ok for a monotone coastal walk). Returns
+    (clipped_pts, P_in, P_out) or None if the chain never enters the box.
+    """
+    def inside(p):
+        return abs(p[0]) <= H + 1e-6 and abs(p[1]) <= H + 1e-6
+    clipped = []
+    P_in = None
+    P_out = None
+    for i in range(len(chain) - 1):
+        a, b = chain[i], chain[i + 1]
+        ai, bi = inside(a), inside(b)
+        if ai and bi:
+            if not clipped:
+                clipped.append(a)
+            clipped.append(b)
+        elif not ai and bi:
+            seg = _liang_barsky(a, b, H)
+            if seg is None:
+                continue
+            P_in = seg[0]
+            clipped.append(P_in)
+            clipped.append(b)
+        elif ai and not bi:
+            seg = _liang_barsky(a, b, H)
+            if seg is None:
+                continue
+            P_out = seg[1]
+            clipped.append(P_out)
+            return clipped, P_in, P_out
+    if not clipped:
+        return None
+    return clipped, P_in, P_out
+
+
+def _box_param(p, H):
+    """Parameterize a point on the box boundary as t ∈ [0, 4) CCW from (-H,-H).
+
+    0..1: bottom (y=-H),   1..2: right (x=H),
+    2..3: top (y=H),       3..4: left (x=-H).
+    """
+    eps = 1e-3
+    if abs(p[1] + H) < eps: return (p[0] + H) / (2 * H)
+    if abs(p[0] - H) < eps: return 1 + (p[1] + H) / (2 * H)
+    if abs(p[1] - H) < eps: return 2 + (H - p[0]) / (2 * H)
+    if abs(p[0] + H) < eps: return 3 + (H - p[1]) / (2 * H)
+    raise ValueError(f"point {p} not on box boundary H={H}")
+
+
+def _box_corner(t_idx, H):
+    """CCW box corner for index 0..3."""
+    return [(-H, -H), (H, -H), (H, H), (-H, H)][t_idx % 4]
+
+
+def _walk_box(P_out, P_in, H, ccw):
+    """Perimeter path from P_out to P_in via box corners. Returns intermediate corners.
+
+    `ccw=True` walks counter-clockwise (increasing box-param direction t ∈ [0,4),
+    with corners at integer t values).
+    """
+    t_out = _box_param(P_out, H)
+    t_in = _box_param(P_in, H)
+    arc = (t_in - t_out) % 4 if ccw else (t_out - t_in) % 4
+    pts = []
+    for k in range(1, 5):
+        # k-th integer t strictly past t_out in the walk direction.
+        if ccw:
+            corner_t = _math.floor(t_out) + k
+            d = (corner_t - t_out) % 4
+        else:
+            corner_t = _math.ceil(t_out) - k
+            d = (t_out - corner_t) % 4
+        if d <= 1e-9 or d >= arc - 1e-9:
+            break
+        pts.append(_box_corner(int(corner_t) % 4, H))
+    return pts
+
+
+def _point_in_poly(x, y, poly):
+    """Ray casting; poly is list of (x,y)."""
+    n = len(poly)
+    inside = False
+    j = n - 1
+    for i in range(n):
+        xi, yi = poly[i]
+        xj, yj = poly[j]
+        if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi + 1e-30) + xi):
+            inside = not inside
+        j = i
+    return inside
+
+
+def _signed_area(ring):
+    """Shoelace area. Positive = CCW winding, negative = CW."""
+    n = len(ring)
+    s = 0.0
+    for i in range(n - 1):
+        s += (ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1])
+    return 0.5 * s
+
+
+def _close_open_chain(clipped, P_in, P_out, H):
+    """Close a coastline chain (clipped to the box) into an ocean polygon by
+    walking the box perimeter on the water side (OSM: water on right of walk).
+    Returns the closed polygon ring.
+    """
+    import math as _m
+    # Seed right-of-tangent at mid-chain, then pick the box-closure direction
+    # whose resulting polygon contains the seed.
+    mi = len(clipped) // 2
+    tx = clipped[mi + 1][0] - clipped[mi - 1][0]
+    ty = clipped[mi + 1][1] - clipped[mi - 1][1]
+    n = _m.hypot(tx, ty) or 1.0
+    rx, ry = ty / n, -tx / n
+    step = max(50.0, H * 0.01)
+    seed = (clipped[mi][0] + step * rx, clipped[mi][1] + step * ry)
+    seed = (max(-H + 0.5, min(H - 0.5, seed[0])),
+            max(-H + 0.5, min(H - 0.5, seed[1])))
+    for ccw in (True, False):
+        corners = _walk_box(P_out, P_in, H, ccw)
+        poly = clipped + corners + [clipped[0]]
+        if _point_in_poly(seed[0], seed[1], poly):
+            return poly
+    # Fallback — shouldn't reach for well-formed input.
+    corners = _walk_box(P_out, P_in, H, True)
+    return clipped + corners + [clipped[0]]
+
+
+def _clip_closed_chain(chain, H):
+    """Keep a closed chain only if entirely inside the box (island fully
+    contained). Chains that cross the box edge become open chains and are
+    handled by `_clip_coastline`. Returns the chain or None.
+    """
+    for p in chain:
+        if abs(p[0]) > H + 1e-6 or abs(p[1]) > H + 1e-6:
+            return None
+    return chain
+
+
+def _build_ocean_polygons(ways, half_m):
+    """Assemble OSM coastline ways into ocean and land (island) polygons.
+
+    Returns a dict with:
+      "ocean": list of closed rings — each a polygon of water. Open coastline
+               chains in the box are each closed via the water-side box walk.
+               Fully-contained closed chains with CCW winding (water on right
+               = water inside) also go here (lagoons, bays encircled by coast).
+      "land":  list of closed rings — islands fully inside the box with CW
+               winding (water on right = water outside = land inside).
+
+    Final ocean test: inside any ocean ring AND NOT inside any land ring.
+    """
+    H = float(half_m)
+    chains = _chain_ways(ways)
+    ocean_polys = []
+    land_polys = []
+    for chain in chains:
+        if len(chain) < 3:
+            continue
+        is_closed = (abs(chain[0][0] - chain[-1][0]) < 1.0 and
+                     abs(chain[0][1] - chain[-1][1]) < 1.0)
+        if is_closed:
+            ring = _clip_closed_chain(chain, H)
+            if ring is None:
+                continue
+            area = _signed_area(ring)
+            # OSM coastline: water on right of walk direction. A CCW walk has
+            # exterior on the right → water outside, land inside → island.
+            # A CW walk has interior on the right → water inside (lagoon).
+            if area > 0:
+                land_polys.append(ring)   # CCW → island (land interior)
+            else:
+                ocean_polys.append(ring)  # CW → water interior
+        else:
+            clip = _clip_coastline(chain, H)
+            if clip is None:
+                continue
+            clipped, P_in, P_out = clip
+            if P_in is None or P_out is None or len(clipped) < 3:
+                continue
+            ocean_polys.append(_close_open_chain(clipped, P_in, P_out, H))
+    return {"ocean": ocean_polys, "land": land_polys}
+
+
+def _write_exp(path, name, ring):
+    """Write a single-ring .exp (ISSM contour format) with `name`."""
+    with open(path, "w") as f:
+        f.write(f"## Name:{name}\n## Icon:0\n# Points Count Value\n{len(ring)} 1.\n# X pos Y pos\n")
+        for px, py in ring:
+            f.write(f"{px:.4f} {py:.4f}\n")
+
+
+def _write_exp_multi(path, name, rings):
+    """Write a multi-ring .exp. ContourToNodes flags a node if inside ANY ring."""
+    with open(path, "w") as f:
+        for i, ring in enumerate(rings):
+            f.write(f"## Name:{name}{i}\n## Icon:0\n# Points Count Value\n")
+            f.write(f"{len(ring)} 1.\n# X pos Y pos\n")
+            for px, py in ring:
+                f.write(f"{px:.4f} {py:.4f}\n")
+
+
+def _ocean_exp_path(slug, half_m):
+    """Per-scale ocean exp path. Each layer (inner/farfield/super) gets its own
+    polygon because the box is a different size."""
+    return EXP / f"{slug}_ocean_h{int(half_m)}.exp"
+
+
+def _land_exp_path(slug, half_m):
+    """Per-scale land (island) exp path. Islands are subtracted from the ocean
+    mask so land fully enclosed by ocean coastline isn't sunk."""
+    return EXP / f"{slug}_land_h{int(half_m)}.exp"
+
+
+def _make_ocean_exp(slug, center, half_m, mpl, mpa):
+    """Fetch coastline + assemble ocean/land polygons for the given box.
+
+    Returns `(ocean_path, land_path, main_ocean_ring)`. `main_ocean_ring` is
+    the biggest ocean ring (for the viewer's red debug outline). `land_path`
+    is None if there are no islands.
+    """
+    try:
+        ways = _fetch_osm_coastline(slug, center, half_m, mpl, mpa,
+                                    label=f"h{int(half_m)}")
+    except Exception as e:
+        print(f"  coastline fetch failed ({e}); falling back to blanket rule")
+        return None, None, None
+    if not ways:
+        return None, None, None
+    polys = _build_ocean_polygons(ways, half_m)
+    if not polys["ocean"]:
+        return None, None, None
+    ocean_path = _ocean_exp_path(slug, half_m)
+    _write_exp_multi(ocean_path, "ocean", polys["ocean"])
+    land_path = None
+    if polys["land"]:
+        land_path = _land_exp_path(slug, half_m)
+        _write_exp_multi(land_path, "land", polys["land"])
+    main_ring = max(polys["ocean"], key=len)
+    opts = f"{len(polys['ocean'])} ocean"
+    if polys["land"]:
+        opts += f", {len(polys['land'])} land"
+    tot = sum(len(r) for r in polys["ocean"]) + sum(len(r) for r in polys["land"])
+    print(f"  wrote ocean polygon: {ocean_path.name} ({opts}, {tot} pts)")
+    return ocean_path, land_path, main_ring
+
+
+def _ocean_flags(x, y, exp_path):
+    """Point-in-polygon flags via ISSM ContourToNodes. 1 = inside ocean polygon.
+
+    `x`, `y` are flat arrays in the site's local tangent plane (meters). The
+    polygon in `exp_path` must be in the same local coords. Returns a flat
+    bool numpy array of the same length as x.
+    """
+    import numpy as np
+    from ContourToNodes import ContourToNodes
+    flags = ContourToNodes(np.asarray(x, dtype=float),
+                           np.asarray(y, dtype=float),
+                           str(exp_path), 2)
+    arr = flags[0] if isinstance(flags, tuple) else flags
+    return np.asarray(arr).ravel().astype(bool)
+
+
+def _apply_ocean_mask(x, y, topo, ocean_exp, land_exp=None):
+    """Replace blanket `topo < 1 → -5` with explicit ocean polygon(s).
+
+    Polygon is truth. Inside ocean polygon AND outside any island polygon
+    → forced to -5 m (safely below any slider). Everywhere else → DEM z
+    kept, floored at 0.1 m. If no `ocean_exp`, falls back to blanket rule.
+    """
+    import numpy as np
+    topo = np.asarray(topo, dtype=float).copy()
+    if ocean_exp is None:
+        return np.where(topo < 1.0, -5.0, topo)
+    ocean = _ocean_flags(x, y, ocean_exp)
+    if land_exp is not None:
+        ocean &= ~_ocean_flags(x, y, land_exp)
+    topo[ocean] = -5.0
+    land = ~ocean
+    topo[land] = np.maximum(topo[land], 0.1)
+    return topo
+
+
 def _build_grid_layer(site, cfg, key):
     """Coarse DEM + low-res imagery over an arbitrary extent, as a regular grid.
 
@@ -723,7 +1114,11 @@ def _build_grid_layer(site, cfg, key):
     xi = np.clip(((xs - xg[0]) / (xg[-1] - xg[0]) * (ncols - 1)).round().astype(int), 0, ncols - 1)
     yi = np.clip(((ys - yg[0]) / (yg[-1] - yg[0]) * (nrows - 1)).round().astype(int), 0, nrows - 1)
     zz = dem_flip[np.ix_(yi, xi)]
-    zz = np.where(zz < 1.0, -5.0, zz)
+    layer_mpl = mpl_at(lat0)
+    ocean_exp, land_exp, _ = _make_ocean_exp(slug, center, half_m, layer_mpl, 110540.0)
+    xx, yy = np.meshgrid(xs, ys)
+    zz = _apply_ocean_mask(xx.ravel(), yy.ravel(), zz.ravel(),
+                           ocean_exp, land_exp).reshape(zz.shape)
     print(f"  {key} z: min={zz.min():.1f} max={zz.max():.1f} mean={zz.mean():.1f}")
 
     img_pub = SITE_OUT / f"{slug}_{key}_img.webp"
@@ -805,9 +1200,11 @@ def _build_site(site):
     md = bamg(md, "hVertices", hv, "hmin", hmin, "hmax", hmax)
     print(f"  graded mesh: nv={md.mesh.numberofvertices} ne={md.mesh.numberofelements}")
     topo = InterpFromGridToMesh(x_grid, y_grid, dem_flip, md.mesh.x, md.mesh.y, 0.0)
-    # 3DEP returns small positive values for ocean floor sampling. Anything
-    # below 1 m is almost certainly ocean, not real beach — sink it.
-    topo = np.where(np.asarray(topo) < 1.0, -5.0, topo)
+    # Build ocean mask from OSM `natural=coastline` for the box. If the site
+    # has no coastline (fully inland), the mask step falls through to the
+    # historical blanket `topo<1 → -5` rule.
+    ocean_exp, land_exp, ocean_poly = _make_ocean_exp(slug, center, half_m, mpl, mpa)
+    topo = _apply_ocean_mask(md.mesh.x, md.mesh.y, topo, ocean_exp, land_exp)
 
     md.geometry.surface = topo
 
@@ -840,7 +1237,8 @@ def _build_site(site):
     superfarfield = _build_grid_layer(site, site["superfarfield"], "superfarfield") if site.get("superfarfield") else None
     _publish_site(slug, title, md, topo, f"{slug}_naip.webp",
                   [xmin, ymin, xmax, ymax], site["focus_radius"],
-                  buildings=buildings, farfield=farfield, superfarfield=superfarfield)
+                  buildings=buildings, farfield=farfield, superfarfield=superfarfield,
+                  ocean_outline=ocean_poly)
 
 
 def _step_for(site):
