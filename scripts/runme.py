@@ -526,6 +526,19 @@ def _fetch_imagery_esri(slug, center, half_m, out_name, px=4000):
     return jpg
 
 
+def _publish_imagery(src_jpg, out_webp, quality=80):
+    """Convert JPG → WebP via cwebp. ~40% smaller at visually-equivalent quality.
+
+    cwebp is pulled from `pkg install libwebp`. Pillow on Termux ships without
+    WebP support, so shelling out is simpler than building the module.
+    """
+    import subprocess
+    subprocess.run(
+        ["cwebp", "-q", str(quality), "-quiet",
+         str(src_jpg), "-o", str(out_webp)],
+        check=True)
+
+
 def _publish_site(slug, title, md, topo, imagery_file, bbox, focus_radius,
                   buildings=None, farfield=None, superfarfield=None):
     """Write the draped snapshot into public/data/<slug>.json for the website.
@@ -713,8 +726,8 @@ def _build_grid_layer(site, cfg, key):
     zz = np.where(zz < 1.0, -5.0, zz)
     print(f"  {key} z: min={zz.min():.1f} max={zz.max():.1f} mean={zz.mean():.1f}")
 
-    img_pub = SITE_OUT / f"{slug}_{key}_img.jpg"
-    shutil.copyfile(img_jpg, img_pub)
+    img_pub = SITE_OUT / f"{slug}_{key}_img.webp"
+    _publish_imagery(img_jpg, img_pub)
 
     return {
         "nx": grid_n,
@@ -723,7 +736,7 @@ def _build_grid_layer(site, cfg, key):
         "ys": [round(float(v), 1) for v in ys],
         "z": [round(float(v), 2) for v in zz.flatten()],
         "bbox": [float(xs[0]), float(ys[0]), float(xs[-1]), float(ys[-1])],
-        "imagery": f"{slug}_{key}_img.jpg",
+        "imagery": f"{slug}_{key}_img.webp",
     }
 
 
@@ -813,9 +826,10 @@ def _build_site(site):
              center=[0.0, 0.0, 0.0], focus_radius=site["focus_radius"],
              imagery=f"{slug}_naip.jpg", bbox=[xmin, ymin, xmax, ymax])
 
-    # Website payload (tracked, served from /data/).
-    naip_pub = SITE_OUT / f"{slug}_naip.jpg"
-    shutil.copyfile(naip_src, naip_pub)
+    # Website payload (tracked, served from /data/). JPG → WebP for the wire.
+    naip_pub = SITE_OUT / f"{slug}_naip.webp"
+    _publish_imagery(naip_src, naip_pub)
+    print(f"  wrote {naip_pub.relative_to(ROOT)} ({naip_pub.stat().st_size} bytes)")
     buildings = None
     if site.get("buildings"):
         buildings = _fetch_osm_buildings(slug, center, half_m, mpl, mpa)
@@ -824,7 +838,7 @@ def _build_site(site):
         buildings = _trim_buildings(buildings)
     farfield = _build_grid_layer(site, site["farfield"], "farfield") if site.get("farfield") else None
     superfarfield = _build_grid_layer(site, site["superfarfield"], "superfarfield") if site.get("superfarfield") else None
-    _publish_site(slug, title, md, topo, f"{slug}_naip.jpg",
+    _publish_site(slug, title, md, topo, f"{slug}_naip.webp",
                   [xmin, ymin, xmax, ymax], site["focus_radius"],
                   buildings=buildings, farfield=farfield, superfarfield=superfarfield)
 
