@@ -154,17 +154,36 @@ function makeLabelSprite(text) {
 }
 
 function buildOceanOutline(s) {
-  if (!s.ocean_outline || s.ocean_outline.length < 2) return;
-  const pts = s.ocean_outline;
+  // Legacy single ring (back-compat)
+  if (s.ocean_outline && s.ocean_outline.length >= 2) {
+    addRing(s.ocean_outline, 0xff0033, 1.0);
+  }
+  if (!s.outlines) return;
+  // Three layers × ocean/land. Colors picked so you can tell them apart.
+  const layerCfg = {
+    inner:    { ocean: 0xff0033, land: 0xff66aa, z: 1.5 }, // red / pink
+    farfield: { ocean: 0xff8800, land: 0x00ffff, z: 2.0 }, // orange / cyan
+    super:    { ocean: 0xffff00, land: 0x00ff66, z: 2.5 }, // yellow / green
+  };
+  for (const [key, cfg] of Object.entries(layerCfg)) {
+    const layer = s.outlines[key];
+    if (!layer) continue;
+    for (const r of (layer.ocean || [])) addRing(r, cfg.ocean, cfg.z);
+    for (const r of (layer.land  || [])) addRing(r, cfg.land,  cfg.z);
+  }
+}
+
+function addRing(pts, color, zOffset) {
+  if (!pts || pts.length < 2) return;
   const positions = new Float32Array(pts.length * 3);
   for (let i = 0; i < pts.length; i++) {
     positions[3 * i + 0] = pts[i][0];
     positions[3 * i + 1] = pts[i][1];
-    positions[3 * i + 2] = 1.0; // ~1 m above sea level, visible at slider=0
+    positions[3 * i + 2] = zOffset;
   }
   const geom = new THREE.BufferGeometry();
   geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  const mat = new THREE.LineBasicMaterial({ color: 0xff0033, depthTest: false });
+  const mat = new THREE.LineBasicMaterial({ color, depthTest: false });
   const line = new THREE.Line(geom, mat);
   line.renderOrder = 20;
   scene.add(line);
@@ -310,11 +329,10 @@ function buildBuildings(s) {
 
 // Coarse grid layer draped with its own low-res texture. Sunk `sinkM` meters
 // under whatever is covering it so inner meshes win by depth test. Hole-cut
-// rule: cull a cell only if it both overlaps the (shrunk) hole AND has any
-// dry-land corner. All-ocean cells in the hole are kept so the water plane
-// hides them, closing the ocean-side seam gap. The hole is shrunk by one cell
-// width (capped at a quarter of the hole width) so the kept-cell edge lands
-// at the inner-mesh edge instead of one cell past it.
+// rule: cull a cell only if ALL four corners sit inside the (shrunk) hole
+// AND the cell has any dry-land corner. Boundary cells that straddle the
+// hole edge are kept so the inner layer overdraws them, leaving no gap of
+// bare water plane between layers.
 function buildGridLayer(layer, holeBbox, sinkM) {
   if (!layer) return;
   const nx = layer.nx, ny = layer.ny;
@@ -347,9 +365,9 @@ function buildGridLayer(layer, holeBbox, sinkM) {
   const tris = [];
   for (let j = 0; j < ny - 1; j++) {
     for (let i = 0; i < nx - 1; i++) {
-      const anyInHole = inHole(i, j) || inHole(i + 1, j) || inHole(i, j + 1) || inHole(i + 1, j + 1);
+      const allInHole = inHole(i, j) && inHole(i + 1, j) && inHole(i, j + 1) && inHole(i + 1, j + 1);
       const anyLand = isLand(i, j) || isLand(i + 1, j) || isLand(i, j + 1) || isLand(i + 1, j + 1);
-      if (anyInHole && anyLand) continue;
+      if (allInHole && anyLand) continue;
       const a = j * nx + i;
       const b = j * nx + i + 1;
       const c = (j + 1) * nx + i;

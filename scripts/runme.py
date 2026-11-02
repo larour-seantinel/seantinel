@@ -542,7 +542,7 @@ def _publish_imagery(src_jpg, out_webp, quality=80):
 
 def _publish_site(slug, title, md, topo, imagery_file, bbox, focus_radius,
                   buildings=None, farfield=None, superfarfield=None,
-                  ocean_outline=None):
+                  inner_rings=None):
     """Write the draped snapshot into public/data/<slug>.json for the website.
 
     Mirrors plot_web()'s payload but carries a `title` field and lives in a
@@ -569,9 +569,18 @@ def _publish_site(slug, title, md, topo, imagery_file, bbox, focus_radius,
         out["farfield"] = farfield
     if superfarfield:
         out["superfarfield"] = superfarfield
-    if ocean_outline is not None:
-        out["ocean_outline"] = [[round(float(p[0]), 1), round(float(p[1]), 1)]
-                                for p in ocean_outline]
+    def _ser(rs):
+        return [[[round(float(p[0]), 1), round(float(p[1]), 1)] for p in r] for r in rs]
+    outlines = {}
+    if inner_rings is not None:
+        outlines["inner"] = {"ocean": _ser(inner_rings.get("ocean", [])),
+                             "land":  _ser(inner_rings.get("land", []))}
+    if farfield and farfield.get("rings"):
+        outlines["farfield"] = farfield["rings"]
+    if superfarfield and superfarfield.get("rings"):
+        outlines["super"] = superfarfield["rings"]
+    if outlines:
+        out["outlines"] = outlines
     json_path, bin_path = _write_site_binary(slug, out)
     extras = f" buildings={len(buildings)}" if buildings else ""
     if farfield:
@@ -877,6 +886,47 @@ def _point_in_poly(x, y, poly):
     return inside
 
 
+def _douglas_peucker(points, tol):
+    """Ramer-Douglas-Peucker polyline simplification. Keeps first and last
+    points. `tol` is max perpendicular distance in meters. Reduces OSM
+    coastline zigzags (bay heads, tidal inlets tagged as coastline) that
+    create false inland lobes at coarse layers."""
+    if len(points) < 3 or tol <= 0:
+        return list(points)
+    tol2 = tol * tol
+    keep = [False] * len(points)
+    keep[0] = True
+    keep[-1] = True
+    stack = [(0, len(points) - 1)]
+    while stack:
+        i0, i1 = stack.pop()
+        if i1 - i0 < 2:
+            continue
+        x0, y0 = points[i0]
+        x1, y1 = points[i1]
+        dx, dy = x1 - x0, y1 - y0
+        denom = dx * dx + dy * dy
+        imax, dmax2 = -1, 0.0
+        if denom == 0.0:
+            for k in range(i0 + 1, i1):
+                px, py = points[k]
+                d2 = (px - x0) ** 2 + (py - y0) ** 2
+                if d2 > dmax2:
+                    dmax2, imax = d2, k
+        else:
+            for k in range(i0 + 1, i1):
+                px, py = points[k]
+                num = dy * px - dx * py + x1 * y0 - y1 * x0
+                d2 = (num * num) / denom
+                if d2 > dmax2:
+                    dmax2, imax = d2, k
+        if dmax2 > tol2 and imax > 0:
+            keep[imax] = True
+            stack.append((i0, imax))
+            stack.append((imax, i1))
+    return [points[i] for i in range(len(points)) if keep[i]]
+
+
 def _signed_area(ring):
     """Shoelace area. Positive = CCW winding, negative = CW."""
     n = len(ring)
@@ -939,9 +989,14 @@ def _build_ocean_polygons(ways, half_m):
     """
     H = float(half_m)
     chains = _chain_ways(ways)
+    # Simplify each chain to the layer's resolution. tol = H/100 collapses
+    # sub-cell wiggles but keeps real coast features. Residual OSM river-mouth
+    # inland lobes are caught by the DEM-veto in `_apply_ocean_mask`.
+    tol = H / 100.0
     ocean_polys = []
     land_polys = []
     for chain in chains:
+        chain = _douglas_peucker(chain, tol)
         if len(chain) < 3:
             continue
         is_closed = (abs(chain[0][0] - chain[-1][0]) < 1.0 and
@@ -1023,13 +1078,12 @@ def _make_ocean_exp(slug, center, half_m, mpl, mpa):
     if polys["land"]:
         land_path = _land_exp_path(slug, half_m)
         _write_exp_multi(land_path, "land", polys["land"])
-    main_ring = max(polys["ocean"], key=len)
     opts = f"{len(polys['ocean'])} ocean"
     if polys["land"]:
         opts += f", {len(polys['land'])} land"
     tot = sum(len(r) for r in polys["ocean"]) + sum(len(r) for r in polys["land"])
     print(f"  wrote ocean polygon: {ocean_path.name} ({opts}, {tot} pts)")
-    return ocean_path, land_path, main_ring
+    return ocean_path, land_path, polys
 
 
 def _ocean_flags(x, y, exp_path):
@@ -1048,27 +1102,73 @@ def _ocean_flags(x, y, exp_path):
     return np.asarray(arr).ravel().astype(bool)
 
 
-def _apply_ocean_mask(x, y, topo, ocean_exp, land_exp=None):
-    """Replace blanket `topo < 1 → -5` with explicit ocean polygon(s).
+def _apply_hierarchy_mask(x, y, topo, layers, far_layer=True):
+    """Classify each point using the finest polygon whose extent covers it.
 
-    Polygon is truth. Inside ocean polygon AND outside any island polygon
-    → forced to -5 m (safely below any slider). Everywhere else → DEM z
-    kept, floored at 0.1 m. If no `ocean_exp`, falls back to blanket rule.
+    `layers`: ordered list finest→coarsest, each a dict
+      {"half_m": H, "ocean": path, "land": path_or_None}.
+    For each point we walk layers in order; the first layer whose box
+    (|x|≤H, |y|≤H) contains the point decides. If no layer covers the point
+    (shouldn't happen if the outermost layer spans the grid) it stays land.
+    """
+    import numpy as np
+    x = np.asarray(x); y = np.asarray(y)
+    topo = np.asarray(topo, dtype=float).copy()
+    n = len(x)
+    ocean = np.zeros(n, dtype=bool)
+    classified = np.zeros(n, dtype=bool)
+    for layer in layers:
+        if layer is None or layer.get("ocean") is None:
+            continue
+        H = float(layer["half_m"])
+        in_ext = (np.abs(x) <= H) & (np.abs(y) <= H) & ~classified
+        if not in_ext.any():
+            continue
+        o = _ocean_flags(x[in_ext], y[in_ext], layer["ocean"])
+        if layer.get("land"):
+            o &= ~_ocean_flags(x[in_ext], y[in_ext], layer["land"])
+        ocean[in_ext] = o
+        classified[in_ext] = True
+    if far_layer:
+        topo[ocean] = 0.0
+    else:
+        topo[ocean] = -5.0
+        land = ~ocean
+        topo[land] = np.maximum(topo[land], 0.1)
+    return topo
+
+
+def _apply_ocean_mask(x, y, topo, ocean_exp, land_exp=None, far_layer=False):
+    """Polygon is truth. Inside ocean polygon AND outside any island polygon
+    → water. Everywhere else → land, keep DEM z (mountains, hills).
+
+    far_layer=True (farfield / superfarfield): ocean cells → z=0, land keeps
+    DEM as-is (even inland false-ocean cells from OSM river-mouth artifacts
+    just render as whatever the DEM says — no z override). Imagery drapes
+    over the real terrain.
+
+    far_layer=False (inner mesh): ocean cells → z=-5 (safely below slider),
+    land floored at z=0.1. Fine-grained inundation driven by DEM.
     """
     import numpy as np
     topo = np.asarray(topo, dtype=float).copy()
     if ocean_exp is None:
+        if far_layer:
+            return np.where(topo < 1.0, 0.0, topo)
         return np.where(topo < 1.0, -5.0, topo)
     ocean = _ocean_flags(x, y, ocean_exp)
     if land_exp is not None:
         ocean &= ~_ocean_flags(x, y, land_exp)
-    topo[ocean] = -5.0
-    land = ~ocean
-    topo[land] = np.maximum(topo[land], 0.1)
+    if far_layer:
+        topo[ocean] = 0.0
+    else:
+        topo[ocean] = -5.0
+        land = ~ocean
+        topo[land] = np.maximum(topo[land], 0.1)
     return topo
 
 
-def _build_grid_layer(site, cfg, key):
+def _build_grid_layer(site, cfg, key, parent_layers=None):
     """Coarse DEM + low-res imagery over an arbitrary extent, as a regular grid.
 
     `cfg` supplies half_m, grid_n, naip_px. `key` is used in cache filenames and
@@ -1115,15 +1215,21 @@ def _build_grid_layer(site, cfg, key):
     yi = np.clip(((ys - yg[0]) / (yg[-1] - yg[0]) * (nrows - 1)).round().astype(int), 0, nrows - 1)
     zz = dem_flip[np.ix_(yi, xi)]
     layer_mpl = mpl_at(lat0)
-    ocean_exp, land_exp, _ = _make_ocean_exp(slug, center, half_m, layer_mpl, 110540.0)
+    ocean_exp, land_exp, rings = _make_ocean_exp(slug, center, half_m, layer_mpl, 110540.0)
     xx, yy = np.meshgrid(xs, ys)
-    zz = _apply_ocean_mask(xx.ravel(), yy.ravel(), zz.ravel(),
-                           ocean_exp, land_exp).reshape(zz.shape)
+    # Hierarchy: finest-first list of (parent) layers + self at the end.
+    hierarchy = list(parent_layers or []) + [
+        {"half_m": half_m, "ocean": ocean_exp, "land": land_exp}]
+    zz = _apply_hierarchy_mask(xx.ravel(), yy.ravel(), zz.ravel(),
+                               hierarchy, far_layer=True).reshape(zz.shape)
     print(f"  {key} z: min={zz.min():.1f} max={zz.max():.1f} mean={zz.mean():.1f}")
 
     img_pub = SITE_OUT / f"{slug}_{key}_img.webp"
     _publish_imagery(img_jpg, img_pub)
 
+    def _ser(rs):
+        return [[[round(float(p[0]), 1), round(float(p[1]), 1)] for p in r] for r in rs]
+    layer_info = {"half_m": half_m, "ocean": ocean_exp, "land": land_exp}
     return {
         "nx": grid_n,
         "ny": grid_n,
@@ -1132,6 +1238,9 @@ def _build_grid_layer(site, cfg, key):
         "z": [round(float(v), 2) for v in zz.flatten()],
         "bbox": [float(xs[0]), float(ys[0]), float(xs[-1]), float(ys[-1])],
         "imagery": f"{slug}_{key}_img.webp",
+        "rings": {"ocean": _ser(rings["ocean"]) if rings else [],
+                  "land":  _ser(rings["land"])  if rings else []},
+        "layer_info": layer_info,
     }
 
 
@@ -1203,7 +1312,7 @@ def _build_site(site):
     # Build ocean mask from OSM `natural=coastline` for the box. If the site
     # has no coastline (fully inland), the mask step falls through to the
     # historical blanket `topo<1 → -5` rule.
-    ocean_exp, land_exp, ocean_poly = _make_ocean_exp(slug, center, half_m, mpl, mpa)
+    ocean_exp, land_exp, inner_rings = _make_ocean_exp(slug, center, half_m, mpl, mpa)
     topo = _apply_ocean_mask(md.mesh.x, md.mesh.y, topo, ocean_exp, land_exp)
 
     md.geometry.surface = topo
@@ -1233,12 +1342,21 @@ def _build_site(site):
         hag_pkg = _fetch_hag_raster(slug, center, half_m)
         _apply_lidar_heights(buildings, center, hag_pkg)
         buildings = _trim_buildings(buildings)
-    farfield = _build_grid_layer(site, site["farfield"], "farfield") if site.get("farfield") else None
-    superfarfield = _build_grid_layer(site, site["superfarfield"], "superfarfield") if site.get("superfarfield") else None
+    # Hierarchy for far layers: inner → farfield → super (finest first).
+    inner_layer = {"half_m": half_m, "ocean": ocean_exp, "land": land_exp}
+    farfield = _build_grid_layer(site, site["farfield"], "farfield",
+                                 parent_layers=[inner_layer]) if site.get("farfield") else None
+    super_parents = [inner_layer] + ([farfield["layer_info"]] if farfield else [])
+    superfarfield = _build_grid_layer(site, site["superfarfield"], "superfarfield",
+                                      parent_layers=super_parents) if site.get("superfarfield") else None
+    # Strip non-JSON-serializable layer_info before publishing.
+    for layer in (farfield, superfarfield):
+        if layer:
+            layer.pop("layer_info", None)
     _publish_site(slug, title, md, topo, f"{slug}_naip.webp",
                   [xmin, ymin, xmax, ymax], site["focus_radius"],
                   buildings=buildings, farfield=farfield, superfarfield=superfarfield,
-                  ocean_outline=ocean_poly)
+                  inner_rings=inner_rings)
 
 
 def _step_for(site):
