@@ -455,7 +455,7 @@ def _fetch_naip(slug, center, half_m, out_name=None, px=4000):
     native) aligns perfectly. Function name kept for caller compatibility.
     """
     name = out_name or f"{slug}_naip_h{int(half_m)}.jpg"
-    return _fetch_imagery_esri(slug, center, half_m, name, min(px, 2048))
+    return _fetch_imagery_esri(slug, center, half_m, name, min(px, 4000))
 
 
 def _fetch_naip_usgs(slug, center, half_m, out_name, px=4000):
@@ -486,8 +486,12 @@ def _fetch_naip_usgs(slug, center, half_m, out_name, px=4000):
 
 
 def _fetch_imagery_esri(slug, center, half_m, out_name, px=4000):
-    """Esri World_Imagery via arcgisonline ExportImage. Global, no auth."""
-    import requests
+    """Esri World_Imagery via arcgisonline ExportImage. Global, no auth.
+
+    Server is flaky at mid sizes (3072 observed 504); retry up to 3× before
+    giving up. 4000 is the empirically-safe upper bound.
+    """
+    import requests, time
     out_dir = ROOT / "data" / slug.capitalize()
     out_dir.mkdir(parents=True, exist_ok=True)
     jpg = out_dir / out_name
@@ -503,10 +507,20 @@ def _fetch_imagery_esri(slug, center, half_m, out_name, px=4000):
         "bboxSR": "4326", "imageSR": "4326",
         "size": f"{w_px},{h_px}", "format": "jpg", "f": "image",
     }
-    r = requests.get(url, params=params, timeout=120)
-    r.raise_for_status()
-    if r.content.startswith(b"{"):
-        raise RuntimeError(f"Esri imagery returned JSON error: {r.content[:200]!r}")
+    last_err = None
+    for attempt in range(3):
+        try:
+            r = requests.get(url, params=params, timeout=180)
+            if r.status_code == 200 and not r.content.startswith(b"{"):
+                break
+            last_err = f"HTTP {r.status_code} ({len(r.content)} bytes)"
+        except requests.RequestException as e:
+            last_err = str(e)
+        wait = 2 ** attempt
+        print(f"  Esri attempt {attempt+1} failed ({last_err}); retrying in {wait}s")
+        time.sleep(wait)
+    else:
+        raise RuntimeError(f"Esri fetch failed after 3 tries: {last_err}")
     jpg.write_bytes(r.content)
     print(f"  fetched Esri imagery: {jpg} ({len(r.content)} bytes, size={w_px}x{h_px})")
     return jpg
