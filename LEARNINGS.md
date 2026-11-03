@@ -48,6 +48,26 @@ before `np.clip` silently truncates. 2026-11-03.
   `InterpFromGridToMesh` with default=NaN on the fine pass flags the
   "no fine data here" case.
 
+## TESG promotion — per-site gotchas (2026-11-03)
+
+Making `_build_tesg()` the single build path (renamed `_build_tesg_site(site)`,
+step dispatch 1..5) surfaced three issues the Hermosa-only prototype didn't hit:
+
+- **PIL DecompressionBombError at 400 km × Copernicus GLO-30.** The outer DEM
+  tile for Mar del Plata comes out ~13k × 13k = 215 M pixels, over PIL's
+  default 178 M bomb limit. Fix: set `Image.MAX_IMAGE_PIXELS = None` in
+  `_load_dem_grid` before `Image.open`. CONUS sites use 3DEP (not PIL) at the
+  outer scale, so this only bites non-CONUS.
+- **Missing `.exp` → `_apply_ocean_mask` crash.** Overpass 502s mid-build left
+  Manhattan without an `*_ocean.exp` on first run. Guard: when the file is
+  absent, pass `None` and fall back to the `z<1` heuristic for that site. Not
+  great (see "Ocean mask is the single source of truth" above) but keeps the
+  build moving when OSM is flaky; rerun once Overpass is back.
+- **Pass 4/5 scales verts to ~65k, not 44k.** The Hermosa-era "~44k verts"
+  figure was pre-promotion. Current count is `nv=33632 → 64746` after the
+  final refinement pass. Still well under any memory limit; just update the
+  CLAUDE.md number next time it's touched.
+
 ## Ocean mask is the single source of truth
 
 **Rule (hard):** ocean vs land is determined ONLY by the OSM `natural=coastline`

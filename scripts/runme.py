@@ -111,37 +111,24 @@ SITES = [
      "center": (33.8625476, -118.4019461),
      "half_m": 2500, "fine_r": 500,
      "focus_radius": 150.0, "elev_max": 500,
-     "buildings": True,
-     "farfield": {"half_m": 10000, "grid_n": 80, "naip_px": 1024},
-     "superfarfield": {"half_m": 200000, "grid_n": 60, "naip_px": 1024}},
+     "buildings": True},
     {"slug": "redondo", "title": "Redondo Beach",
      "center": (33.8382488, -118.3907496),
      "half_m": 2500, "fine_r": 500,
      "focus_radius": 150.0, "elev_max": 500,
-     "buildings": True,
-     "farfield": {"half_m": 10000, "grid_n": 80, "naip_px": 1024},
-     "superfarfield": {"half_m": 200000, "grid_n": 60, "naip_px": 1024}},
-    {"slug": "hermosa_closeup", "title": "Hermosa Beach (close-up)",
-     "center": (33.8625476, -118.4019461),
-     "half_m": 250, "fine_r": 100,
-     "focus_radius": 60.0, "elev_max": 500,
-     "hmin": 2.0, "hmax": 30.0, "buildings": True},
+     "buildings": True},
     {"slug": "manhattan", "title": "Manhattan Beach Pier",
      "center": (33.8835911, -118.4139571),
      "half_m": 2500, "fine_r": 500,
      "focus_radius": 150.0, "elev_max": 500,
-     "buildings": True,
-     "farfield": {"half_m": 10000, "grid_n": 80, "naip_px": 1024},
-     "superfarfield": {"half_m": 200000, "grid_n": 60, "naip_px": 1024}},
+     "buildings": True},
     # Non-CONUS: Copernicus GLO-30 DSM + Esri World_Imagery, OSM buildings
     # with no lidar HAG (falls back to OSM tag heights / 7 m default).
-    # Super-far skipped — would need a mosaic of ~16 GLO-30 tiles.
     {"slug": "mardelplata", "title": "Mar del Plata",
      "center": (-37.9734483, -57.5423292),
      "half_m": 2500, "fine_r": 500,
      "focus_radius": 150.0, "elev_max": 500,
-     "buildings": True,
-     "farfield": {"half_m": 10000, "grid_n": 80, "naip_px": 1024}},
+     "buildings": True},
 ]
 
 
@@ -1370,66 +1357,60 @@ def _build_site(site):
                   rings=rings)
 
 
-def _build_tesg():
-    """Single graded BAMG mesh from super-far (200 km) to inner (hmin=4 m).
+def _build_tesg_site(site):
+    """Single graded BAMG mesh for a site — 400 km × 400 km, no grid tiers.
 
-    One continuous triangulation — no separate grid layers — using the Hermosa
-    ocean EXP as a BAMG contour interior constraint so mesh edges align with the
-    coastline. Output: public/data/tesg.json (plain-array JSON, no binary).
+    Piecewise concave h(r): hmin=4 m core → hmax_inner=150 m at inner_half →
+    hmax=30 km at outer edge. Five progressive refinement passes. Dual DEM
+    (coarse 400 km outer + fine inner override). Three-layer Esri imagery drape.
     """
-    import json as _json
     import numpy as np
     from bamg import bamg
     from model import model
+    from PIL import Image
+    from InterpFromGridToMesh import InterpFromGridToMesh
 
-    site = SITES[0]           # hermosa — reuse center + EXPs
+    slug = site["slug"]
     lat0, lon0 = site["center"]
-    outer_half = 200_000.0    # match superfarfield
+    outer_half = 200_000.0
     hmin = 4.0
-    hmax_inner = 150.0        # match Hermosa inner site at r = inner_r
-    hmax = 30_000.0           # coarse at the outer edge
-    fine_r = 400.0            # h=hmin core (shrunk from 500 to shed inner verts)
-    inner_r = 2500.0          # Hermosa inner-site half-extent
+    hmax_inner = 150.0
+    hmax = 30_000.0
+    fine_r = site.get("fine_r", 400.0)
+    inner_half = float(site["half_m"])
 
     mpl = mpl_at(lat0)
     mpa = 110_540.0
 
-    # 1 — domain EXP (outer rectangular box in local tangent plane)
-    dlon = outer_half / mpl
-    dlat = outer_half / mpa
-    xmin_d = -outer_half; xmax_d = outer_half
-    ymin_d = -(dlat * mpa); ymax_d = (dlat * mpa)  # symmetric, ≈ ±200 km
-    domain_exp = EXP / "tesg_domain.exp"
+    # 1 — domain EXP
+    domain_exp = EXP / f"{slug}_domain.exp"
     with open(domain_exp, "w") as f:
-        f.write("## Name:tesg_domain\n## Icon:0\n# Points Count Value\n5 1.\n# X pos Y pos\n")
-        for px, py in [(xmin_d, ymin_d), (xmax_d, ymin_d),
-                       (xmax_d, ymax_d), (xmin_d, ymax_d), (xmin_d, ymin_d)]:
+        f.write(f"## Name:{slug}_domain\n## Icon:0\n# Points Count Value\n5 1.\n# X pos Y pos\n")
+        for px, py in [(-outer_half, -outer_half), (outer_half, -outer_half),
+                       (outer_half,  outer_half), (-outer_half,  outer_half),
+                       (-outer_half, -outer_half)]:
             f.write(f"{px:.2f} {py:.2f}\n")
     print(f"  wrote {domain_exp}")
 
-    # 2 — ocean EXP (built during last hermosa run)
-    ocean_exp = EXP / "hermosa_ocean.exp"
-    land_exp  = EXP / "hermosa_land.exp"
+    # 2 — ocean/land EXPs (built by _make_ocean_exp below if missing)
+    ocean_exp = EXP / f"{slug}_ocean.exp"
+    land_exp  = EXP / f"{slug}_land.exp"
+    if not ocean_exp.exists():
+        _make_ocean_exp(slug, site["center"], int(outer_half), mpl, mpa)
 
     # 3 — initial coarse mesh
     md = bamg(model(), "domain", str(domain_exp), "hmax", hmax)
     print(f"  initial mesh: nv={md.mesh.numberofvertices} ne={md.mesh.numberofelements}")
 
-    # 4-5 — progressive refinement with piecewise concave h(r). Each pass densifies
-    # the fine region so the next can resolve smaller h. Endpoints hit the Hermosa
-    # targets exactly (h=4 at r=fine_r, h=150 at r=inner_r, h=hmax at outer_half)
-    # but the sqrt-curve climb sheds verts from transition + coarse bands.
-    #   r <= fine_r  : h = hmin
-    #   r <= inner_r : h = hmin + (hmax_inner - hmin) * sqrt(t_in)   t_in in [0,1]
-    #   r >  inner_r : h = hmax_inner + (hmax - hmax_inner) * sqrt(t_out)
+    # 4 — five progressive refinement passes
     for p in range(5):
         r = np.sqrt(np.asarray(md.mesh.x) ** 2 + np.asarray(md.mesh.y) ** 2)
-        t_in  = np.clip((r - fine_r)  / max(inner_r   - fine_r,  1.0), 0.0, 1.0)
-        t_out = np.clip((r - inner_r) / max(outer_half - inner_r, 1.0), 0.0, 1.0)
+        t_in  = np.clip((r - fine_r)    / max(inner_half  - fine_r,     1.0), 0.0, 1.0)
+        t_out = np.clip((r - inner_half) / max(outer_half - inner_half, 1.0), 0.0, 1.0)
         hv_inner = hmin       + (hmax_inner - hmin)       * (t_in  ** 0.75)
         hv_outer = hmax_inner + (hmax       - hmax_inner) * t_out
         hv = np.where(r <= fine_r, hmin,
-             np.where(r <= inner_r, hv_inner, hv_outer))
+             np.where(r <= inner_half, hv_inner, hv_outer))
         hv = np.clip(hv, hmin, hmax)
         if ocean_exp.exists():
             md = bamg(md, "hVertices", hv,
@@ -1439,14 +1420,9 @@ def _build_tesg():
             md = bamg(md, "hVertices", hv, "hmin", hmin, "hmax", hmax)
         print(f"  pass {p+1}: nv={md.mesh.numberofvertices} ne={md.mesh.numberofelements}")
 
-    # 6 — DEM. Two sources: a coarse 400 km DEM so inland verts get real
-    # topography, then the fine Hermosa DEM overrides within the 5 km inner
-    # box. The ocean mask takes precedence for ocean cells.
-    import shutil
-    from PIL import Image
-    from InterpFromGridToMesh import InterpFromGridToMesh
-
+    # 5 — DEM
     def _load_dem_grid(tif_path, center, half_m, elev_max=4500):
+        Image.MAX_IMAGE_PIXELS = None  # Copernicus at 200 km exceeds PIL's default bomb limit
         dem = np.array(Image.open(tif_path), dtype=np.float64)
         bad = ~np.isfinite(dem) | (dem < -200) | (dem > elev_max)
         if bad.any():
@@ -1459,89 +1435,77 @@ def _build_tesg():
         yg_td = (row_lat_td - lat0) * mpa
         return xg, yg_td[::-1], dem[::-1, :]
 
-    # 6a — coarse DEM over the full 400 km TESG extent (USGS 3DEP, 1000 px).
-    tif_outer = _fetch_dem("hermosa", site["center"], int(outer_half),
-                           out_name=f"hermosa_dem_h{int(outer_half)}.tif")
+    # 5a — coarse outer DEM (400 km)
+    tif_outer = _fetch_dem(slug, site["center"], int(outer_half),
+                           out_name=f"{slug}_dem_h{int(outer_half)}.tif")
     xg_o, yg_o, dem_o = _load_dem_grid(tif_outer, site["center"], int(outer_half))
-    topo = InterpFromGridToMesh(xg_o, yg_o, dem_o,
-                                md.mesh.x, md.mesh.y, 0.0)
+    topo = InterpFromGridToMesh(xg_o, yg_o, dem_o, md.mesh.x, md.mesh.y, 0.0)
 
-    # 6b — fine DEM over the Hermosa 5 km inner box, overrides inside.
-    hermosa_half = site["half_m"]       # 2500 m
-    tif = _fetch_dem("hermosa", site["center"], hermosa_half)
+    # 5b — fine inner DEM overrides within inner box
     elev_max = site.get("elev_max", 1200)
-    xg_i, yg_i, dem_i = _load_dem_grid(tif, site["center"], hermosa_half, elev_max)
-    topo_i = InterpFromGridToMesh(xg_i, yg_i, dem_i,
-                                  md.mesh.x, md.mesh.y, float("nan"))
+    tif_inner = _fetch_dem(slug, site["center"], int(inner_half))
+    xg_i, yg_i, dem_i = _load_dem_grid(tif_inner, site["center"], int(inner_half), elev_max)
+    topo_i = InterpFromGridToMesh(xg_i, yg_i, dem_i, md.mesh.x, md.mesh.y, float("nan"))
     mx = np.asarray(md.mesh.x); my = np.asarray(md.mesh.y)
-    inner_mask = (np.abs(mx) <= hermosa_half) & (np.abs(my) <= hermosa_half) & np.isfinite(topo_i)
+    inner_mask = (np.abs(mx) <= inner_half) & (np.abs(my) <= inner_half) & np.isfinite(topo_i)
     topo = np.where(inner_mask, topo_i, topo)
 
-    topo = _apply_ocean_mask(md.mesh.x, md.mesh.y, topo, ocean_exp, land_exp)
+    topo = _apply_ocean_mask(md.mesh.x, md.mesh.y, topo,
+                             ocean_exp if ocean_exp.exists() else None,
+                             land_exp  if land_exp.exists()  else None)
     md.geometry.surface = topo
 
-    x_grid_dem = xg_i; y_grid_dem = yg_i  # inner bbox for publish
-
-    # 7a — inner imagery over the Hermosa 5 km box (reuse the cached Esri drape).
-    naip_src = _fetch_naip("hermosa", site["center"], hermosa_half)
-    naip_pub = SITE_OUT / "tesg_naip.webp"
+    # 6 — imagery: inner (inner_half), mid (25 km), outer (200 km)
+    naip_src = _fetch_naip(slug, site["center"], int(inner_half))
+    naip_pub = SITE_OUT / f"{slug}_naip.webp"
     _publish_imagery(naip_src, naip_pub)
 
-    # 7b — mid imagery covering a 50 km × 50 km box at 2048 px for the
-    # transition between the Hermosa inner drape and the full-extent outer.
     mid_half = 25_000
-    mid_src = _fetch_naip("hermosa", site["center"], mid_half,
-                          out_name=f"hermosa_naip_h{mid_half}.jpg",
-                          px=2048)
-    mid_pub = SITE_OUT / "tesg_naip_mid.webp"
+    mid_src = _fetch_naip(slug, site["center"], mid_half,
+                          out_name=f"{slug}_naip_h{mid_half}.jpg", px=2048)
+    mid_pub = SITE_OUT / f"{slug}_naip_mid.webp"
     _publish_imagery(mid_src, mid_pub)
-    mid_bbox = [-float(mid_half), -float(mid_half),
-                float(mid_half), float(mid_half)]
+    mid_bbox = [-float(mid_half), -float(mid_half), float(mid_half), float(mid_half)]
 
-    # 7c — outer imagery covering the full 400 km TESG extent at coarse res
-    # so verts outside the mid box drape against something real instead of
-    # a stretched edge pixel.
-    outer_src = _fetch_naip("hermosa", site["center"], int(outer_half),
-                            out_name=f"hermosa_naip_h{int(outer_half)}.jpg",
-                            px=2048)
-    outer_pub = SITE_OUT / "tesg_naip_outer.webp"
+    outer_src = _fetch_naip(slug, site["center"], int(outer_half),
+                            out_name=f"{slug}_naip_h{int(outer_half)}.jpg", px=2048)
+    outer_pub = SITE_OUT / f"{slug}_naip_outer.webp"
     _publish_imagery(outer_src, outer_pub)
     outer_bbox = [-float(outer_half), -float(outer_half),
                   float(outer_half), float(outer_half)]
 
-    # 8 — buildings (reuse the Hermosa OSM + HAG cache).
-    buildings = _fetch_osm_buildings("hermosa", site["center"], hermosa_half, mpl, mpa)
-    hag_pkg = _fetch_hag_raster("hermosa", site["center"], hermosa_half)
+    # 7 — buildings
+    buildings = _fetch_osm_buildings(slug, site["center"], int(inner_half), mpl, mpa)
+    hag_pkg = _fetch_hag_raster(slug, site["center"], int(inner_half))
     _apply_lidar_heights(buildings, site["center"], hag_pkg)
     buildings = _trim_buildings(buildings)
 
-    # 9 — rings for the viewer: reload from the ocean/land polygons just used.
-    _, _, polys = _make_ocean_exp("hermosa", site["center"],
-                                  max(hermosa_half, int(outer_half)), mpl, mpa)
+    # 8 — coastline rings for viewer
+    _, _, polys = _make_ocean_exp(slug, site["center"],
+                                  int(outer_half), mpl, mpa)
     rings = polys if polys else None
 
-    # 10 — publish as a regular single-mesh site (no farfield / superfarfield).
-    xmin = float(x_grid_dem[0]); xmax = float(x_grid_dem[-1])
-    ymin = float(y_grid_dem[0]); ymax = float(y_grid_dem[-1])
-    _publish_site("tesg", "TESG \u2014 Hermosa (single mesh)",
-                  md, topo, "tesg_naip.webp",
+    # 9 — publish (single mesh — no farfield/superfarfield)
+    xmin = float(xg_i[0]); xmax = float(xg_i[-1])
+    ymin = float(yg_i[0]); ymax = float(yg_i[-1])
+    _publish_site(slug, site["title"],
+                  md, topo, f"{slug}_naip.webp",
                   [xmin, ymin, xmax, ymax], site["focus_radius"],
                   buildings=buildings, rings=rings,
-                  imagery_mid="tesg_naip_mid.webp",
+                  imagery_mid=f"{slug}_naip_mid.webp",
                   bbox_mid=mid_bbox,
-                  imagery_outer="tesg_naip_outer.webp",
+                  imagery_outer=f"{slug}_naip_outer.webp",
                   bbox_outer=outer_bbox)
 
 
 def _step_for(site):
     def _fn(org):
-        _build_site(site)
+        _build_tesg_site(site)
     _fn.__name__ = f"step_build_{site['slug']}"
     return _fn
 
 
 STEPS = [(f"Build{s['slug'].capitalize()}", _step_for(s)) for s in SITES]
-STEPS.append(("BuildTESG", lambda org: _build_tesg()))
 
 
 def main(argv):

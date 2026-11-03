@@ -55,7 +55,7 @@ function initScene() {
   controls.enableDamping = true;
   controls.maxPolarAngle = (85 * Math.PI) / 180;
   controls.minDistance = 20;
-  controls.maxDistance = 800000;
+  controls.maxDistance = 4000;
 
   (function tick() {
     controls.update();
