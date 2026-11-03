@@ -66,7 +66,18 @@ Three artifacts live, Seantinel core underway.
 
 **Ocean mask**: one `(ocean, land)` `.exp` pair per site, built from OSM `natural=coastline` fetched once at the outermost layer scale. Multi-chain assembly — every closed chain classified by signed shoelace area (CCW → island / land interior, CW → water interior) using OSM's "land-on-left" convention. Open chains clipped via Liang-Barsky, closed CW along the box perimeter using arc-length comparisons. **Adaptive Douglas-Peucker**: per-point tol = `max(25, min(20000, (r−5000)·0.1))` — holds 25 m through the farfield box (so DP can't cut chords across jetties), ramps at 10% of radius, caps at 20 km near the super-far horizon. Same `.exp` pair feeds all layers; ocean cells go to z=−5 for inner **and** far layers (single sentinel), land floored at 0.1 m on the inner mesh only. Hole-cut `allInHole && anyLand → drop` closes the one-cell blue ring at seams. **Straddling-triangle filter** in `site.js`: any triangle mixing an ocean-sentinel vert (z ≤ -2.5) with a land vert is dropped — kills the "dark wedge jutting into the ocean" artifact caused by linear z interpolation across a shoreline-crossing triangle. Water plane fills the gap. Residual OSM river-mouth artifacts at super-far scale produce a few inland blue specks ~20 km inland near Dana Point — tolerated. Only Hermosa rebuilt through the single-mask path; Redondo / close-up / Manhattan / Mar del Plata still ship the old per-layer `_h<H>.exp` pairs.
 
-Next step: rebuild the other 4 sites through the single-mask path, multi-tile HAG mosaicing (fix Redondo + Manhattan coverage), QR codes, landing-page disclaimer link, more coastal sites — see TODO.md.
+**TESG (single-mesh experiment)**: `scripts/runme.py 6` builds one continuous
+BAMG mesh over 400 km × 400 km centered on Hermosa — no inner/farfield/
+superfar tiers. 5 progressive passes with piecewise concave h(r) (hmin=4 m
+core → hmax_inner=150 m at r=2500 → hmax=30 km at r=200 km) → ~44k verts.
+Three-layer imagery drape (5 km hi-res + 50 km mid + 400 km coarse Esri);
+dual DEM (fine Hermosa inner + coarse USGS 3DEP 400 km outer); buildings
+reused from the Hermosa cache. Viewer at `site.html?loc=tesg`. Binary writer
+auto-upgrades `x`/`y` to `f32` when the extent exceeds the i16 ±3276 m range.
+Ocean triangles (any vert z ≤ -2.5) are dropped entirely — water plane sized
+3× the mesh bbox fills the gap, which killed the z-fighting at long zoom.
+
+Next step: decide whether TESG replaces the three-tier pipeline for the four production sites; multi-tile HAG mosaicing (fix Redondo + Manhattan coverage); QR codes; landing-page disclaimer link; more coastal sites — see TODO.md.
 
 Shipped history and build details live in [DONE.md](DONE.md) and
 [LEARNINGS-archive.md](LEARNINGS-archive.md) — not auto-loaded.

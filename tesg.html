@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TESG — mesh debug</title>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #000; color: #ddd; font-family: monospace; }
+    #canvas { display: block; width: 100vw; height: 100vh; }
+    #hud {
+      position: fixed; top: 10px; left: 10px; z-index: 2;
+      background: rgba(0,0,0,0.75); padding: 8px 12px; border-radius: 4px;
+      font-size: 12px; line-height: 1.7; pointer-events: none;
+    }
+    #hud .row { display: flex; align-items: center; gap: 8px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    #status { position: fixed; bottom: 10px; left: 10px; font-size: 11px; color: #888; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div id="hud">
+    <div style="font-size:13px;margin-bottom:6px;color:#fff;">TESG — mesh debug</div>
+    <div class="row"><div class="dot" style="background:#ffffff"></div> inner BAMG mesh</div>
+    <div class="row"><div class="dot" style="background:#44ff88"></div> farfield grid</div>
+    <div class="row"><div class="dot" style="background:#4488ff"></div> superfarfield grid</div>
+    <div class="row"><div class="dot" style="background:#ff2244"></div> ocean EXP ring</div>
+    <div class="row"><div class="dot" style="background:#00ffff"></div> land EXP rings</div>
+    <div class="row"><div class="dot" style="background:#3399ff"></div> vert inside ocean</div>
+    <div class="row"><div class="dot" style="background:#ffaa33"></div> vert outside ocean</div>
+  </div>
+  <div id="status">loading…</div>
+  <script type="module" src="/src/tesg.js"></script>
+</body>
+</html>

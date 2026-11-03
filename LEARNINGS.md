@@ -3,6 +3,69 @@
 Live notes. Shipped ISSM native-stack / APK / 3D rendering details live in
 [LEARNINGS-archive.md](LEARNINGS-archive.md) — pull in on demand.
 
+## TESG — single-mesh variant (2026-11-03)
+
+- **TESG = Test Single Grid.** One continuous BAMG mesh over 400 km × 400 km
+  with hmin=4 m near center, replacing the inner / farfield / superfarfield
+  three-tier stack. 5 progressive refinement passes → ~44k verts / ~88k tris.
+  Code path: `_build_tesg()` in `runme.py`, step `BuildTESG` (`runme.py 6`).
+- **Progressive passes are non-negotiable** for h=4 m across 200 km. Dropping
+  from 5 → 4 passes collapsed the fine core from 54k to 3k verts because BAMG
+  can't shrink the triangles fast enough in one shot. Keep 5.
+- **Piecewise concave h(r)** gave the best verts/quality tradeoff:
+  core (r≤400) → `t^0.75` ramp to `hmax_inner=150` at r=2500 → linear to
+  `hmax=30000` at r=200000. Hitting hmax_inner at the ISSM inner-mesh radius
+  keeps continuity with the single-mesh story.
+
+## i16 binary quantization silently clips at ±3276 m
+
+`_write_site_binary` encoded `x`/`y` as `i16` with scale=0.1, which maxes out
+at ±32767 × 0.1 = ±3276.7 m. TESG's ±200 km mesh wrapped around to garbage,
+producing scrambled geometry that looked like "ocean inland" — a red herring
+that cost most of a session.
+
+**Fix:** auto-pick dtype — if `max(|x|,|y|) > 3276`, encode as `f32`; otherwise
+keep `i16` at scale=0.1. Added an overflow guard that raises `ValueError`
+before `np.clip` silently truncates. 2026-11-03.
+
+## TESG viewer rendering
+
+- **Water plane must be sized from mesh extent, not inner bbox.** The water
+  plane used `s.bbox` (5 km inner) and left all outer ocean verts visible as
+  terrain beyond the plane. Size from `min/max(s.x), min/max(s.y)` × 3.
+- **Z-fighting at long zoom** (300 km+ out from a 1 m plane / 0.1 m floor
+  gap). Tried polygon offset + tight `camera.far` ratio (5× instead of 50×)
+  — still flickered because depth precision physically can't resolve 1 m at
+  that view distance. **Real fix: drop every triangle with any ocean-sentinel
+  vert.** Water plane fills the hole. Zero ocean-side flicker.
+- **Three-layer imagery drape** on a single mesh: inner (5 km, hi-res Hermosa
+  Esri), mid (50 km, 2048 px Esri), outer (400 km, 2048 px Esri). Triangles
+  pick the smallest bbox their centroid falls in. Each gets its own UV layout
+  + texture; one `addMesh()` call per layer.
+- **Dual DEM** so inland verts have real topography: coarse USGS 3DEP at
+  400 km (1000 px) covers everything; fine Hermosa 3DEP at 5 km overrides
+  inside the inner box via `np.where(|x|,|y| ≤ hermosa_half, fine, coarse)`.
+  `InterpFromGridToMesh` with default=NaN on the fine pass flags the
+  "no fine data here" case.
+
+## Ocean mask is the single source of truth
+
+**Rule (hard):** ocean vs land is determined ONLY by the OSM `natural=coastline`
+polygon pair (`<slug>_ocean.exp` / `<slug>_land.exp`). NEVER re-derive ocean
+from DEM z-values in the viewer. NEVER use `z <= 0` or any Tukey/outlier
+heuristic as a secondary ocean filter.
+
+**Why:** the server already runs `_apply_ocean_mask()` for every site. Ocean
+verts come out at z=-5 (sentinel); land verts are floored at z=0.1. A viewer
+heuristic that sinks `z <= 0` to the sentinel misfires any time the land-floor
+dominates the distribution (TESG at 400 km, non-CONUS sites with sparse DEM).
+On TESG the old `clampedZ` collapsed the Tukey fence to 0.1 → every real
+Hermosa terrain vert >0.1 got flipped to ocean, putting blue inland.
+
+**How to apply:** `buildTerrain(s)` reads `s.field` as-is. If a site has an
+ocean problem, fix it in `_apply_ocean_mask()` / the EXP polygon, not in JS.
+2026-11-03.
+
 ## Open bugs
 
 | Symptom | Cause | Status | Date |

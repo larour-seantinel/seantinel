@@ -55,31 +55,27 @@ function initScene() {
   controls.enableDamping = true;
   controls.maxPolarAngle = (85 * Math.PI) / 180;
   controls.minDistance = 20;
-  controls.maxDistance = 4000;
+  controls.maxDistance = 800000;
 
   (function tick() {
     controls.update();
     const camDist = camera.position.distanceTo(controls.target);
+    // Tight near/far ratio so the depth buffer keeps enough precision to
+    // separate land floor (z=0.1) from water plane (z=0) at long zoom.
+    // 50× was the old value — caused z-fighting from ~300 km out on TESG.
     camera.near = Math.max(camDist * 0.1, 1);
-    camera.far = Math.max(camDist * 50, 10000);
+    camera.far  = Math.max(camDist * 5, 10000);
     camera.updateProjectionMatrix();
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
   })();
 }
 
-function clampedZ(zArr) {
-  const sorted = Float32Array.from(zArr).sort();
-  const n = sorted.length;
-  const q25 = sorted[Math.floor(n * 0.25)];
-  const q75 = sorted[Math.floor(n * 0.75)];
-  const fence = q75 + 5 * (q75 - q25); // Tukey outer fence
-  // Outliers above fence are 3DEP NoData in the ocean — sink them, don't clamp.
-  return zArr.map(v => (v > fence || v <= 0) ? -5 : v);
-}
-
 function buildTerrain(s) {
-  const x = s.x, y = s.y, z = clampedZ(s.field);
+  // Trust the server-side ocean mask (OSM red polygon). Do not re-derive
+  // ocean from DEM z values — that was the old clampedZ hack and it misfires
+  // whenever the land floor dominates the distribution (TESG, non-CONUS).
+  const x = s.x, y = s.y, z = s.field;
   const nv = x.length;
   const positions = new Float32Array(nv * 3);
   for (let i = 0; i < nv; i++) {
@@ -87,51 +83,75 @@ function buildTerrain(s) {
     positions[3 * i + 1] = y[i];
     positions[3 * i + 2] = z[i] * Z_EXAG;
   }
-  // Drop triangles that mix ocean sentinel verts (z <= -2.5) with land verts.
-  // Linear z interpolation across such a triangle would otherwise poke part of
-  // the aerial drape above the water plane. Water plane fills the gap.
+  // Drop every triangle with any ocean sentinel vert (z <= -2.5).
   const isOcean = (k) => z[k] <= -2.5;
-  const keep = (a, b, c) => !(
-    (isOcean(a) || isOcean(b) || isOcean(c)) &&
-    (!isOcean(a) || !isOcean(b) || !isOcean(c))
-  );
-  let idx;
+  const keep = (a, b, c) => !isOcean(a) && !isOcean(b) && !isOcean(c);
+  const kept = [];
   if (s.elements_flat) {
     const src = s.elements_flat;
-    const buf = [];
     for (let j = 0; j < src.length; j += 3) {
       const a = src[j], b = src[j + 1], c = src[j + 2];
-      if (keep(a, b, c)) buf.push(a, b, c);
+      if (keep(a, b, c)) kept.push(a, b, c);
     }
-    idx = new Uint32Array(buf);
   } else {
     const ne = s.elements.length;
-    const buf = [];
     for (let j = 0; j < ne; j++) {
       const a = s.elements[j][0] - 1, b = s.elements[j][1] - 1, c = s.elements[j][2] - 1;
-      if (keep(a, b, c)) buf.push(a, b, c);
+      if (keep(a, b, c)) kept.push(a, b, c);
     }
-    idx = new Uint32Array(buf);
   }
 
-  const [xmin, ymin, xmax, ymax] = s.bbox;
-  const uvs = new Float32Array(nv * 2);
-  for (let i = 0; i < nv; i++) {
-    uvs[2 * i + 0] = (x[i] - xmin) / (xmax - xmin);
-    uvs[2 * i + 1] = (y[i] - ymin) / (ymax - ymin);
+  // Layered imagery: inner (sharpest) → mid (optional) → outer (optional).
+  // Each triangle lands in the smallest bbox whose centroid test passes.
+  const layers = [{ bbox: s.bbox, imagery: s.imagery }];
+  if (s.imagery_mid && s.bbox_mid)
+    layers.push({ bbox: s.bbox_mid, imagery: s.imagery_mid });
+  if (s.imagery_outer && s.bbox_outer)
+    layers.push({ bbox: s.bbox_outer, imagery: s.imagery_outer });
+  const inside = (bbox, cx, cy) =>
+    cx >= bbox[0] && cx <= bbox[2] && cy >= bbox[1] && cy <= bbox[3];
+
+  const buckets = layers.map(() => []);
+  for (let j = 0; j < kept.length; j += 3) {
+    const a = kept[j], b = kept[j + 1], c = kept[j + 2];
+    const cx = (x[a] + x[b] + x[c]) / 3;
+    const cy = (y[a] + y[b] + y[c]) / 3;
+    let placed = false;
+    for (let L = 0; L < layers.length; L++) {
+      if (inside(layers[L].bbox, cx, cy)) {
+        buckets[L].push(a, b, c);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) buckets[buckets.length - 1].push(a, b, c);
   }
 
-  const geom = new THREE.BufferGeometry();
-  geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-  geom.setIndex(new THREE.BufferAttribute(idx, 1));
-  geom.computeVertexNormals();
+  const addMesh = (idxList, bbox, imagery) => {
+    if (idxList.length === 0) return null;
+    const [xmin, ymin, xmax, ymax] = bbox;
+    const uvs = new Float32Array(nv * 2);
+    for (let i = 0; i < nv; i++) {
+      uvs[2 * i + 0] = (x[i] - xmin) / (xmax - xmin);
+      uvs[2 * i + 1] = (y[i] - ymin) / (ymax - ymin);
+    }
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    geom.setIndex(new THREE.BufferAttribute(new Uint32Array(idxList), 1));
+    geom.computeVertexNormals();
+    const tex = new THREE.TextureLoader().load('data/' + imagery);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(geom, mat);
+    scene.add(mesh);
+    return { mesh, tex };
+  };
 
-  naipTexture = new THREE.TextureLoader().load('data/' + s.imagery);
-  naipTexture.colorSpace = THREE.SRGBColorSpace;
-  const mat = new THREE.MeshBasicMaterial({ map: naipTexture, side: THREE.DoubleSide });
-  terrainMesh = new THREE.Mesh(geom, mat);
-  scene.add(terrainMesh);
+  for (let L = 0; L < layers.length; L++) {
+    const m = addMesh(buckets[L], layers[L].bbox, layers[L].imagery);
+    if (m && L === 0) { terrainMesh = m.mesh; naipTexture = m.tex; }
+  }
 }
 
 // Ground elevation at (x0,y0) by nearest-neighbor over the mesh verts.
@@ -394,13 +414,25 @@ function buildGridLayer(layer, holeBbox, sinkM) {
 }
 
 function buildWater(s) {
-  const bbox = (s.superfarfield && s.superfarfield.bbox)
-            || (s.farfield && s.farfield.bbox)
-            || s.bbox;
-  const [xmin, ymin, xmax, ymax] = bbox;
+  // Water plane must cover the entire mesh so the ocean side (verts at
+  // z=-5 sentinel) is never visible beyond its edge. Size from the mesh's
+  // own x/y extent, not the inner bbox.
+  let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+  for (let i = 0; i < s.x.length; i++) {
+    const xi = s.x[i], yi = s.y[i];
+    if (xi < xmin) xmin = xi; if (xi > xmax) xmax = xi;
+    if (yi < ymin) ymin = yi; if (yi > ymax) ymax = yi;
+  }
   const w = xmax - xmin, h = ymax - ymin;
-  const geom = new THREE.PlaneGeometry(w * 5, h * 5);
-  const mat = new THREE.MeshBasicMaterial({ color: 0x2b7fcf });
+  const geom = new THREE.PlaneGeometry(w * 3, h * 3);
+  // Polygon offset pushes water a tiny bit back in depth so terrain always
+  // wins the pixel fight at the land floor (z=0.1 vs water z=0).
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0x2b7fcf,
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1,
+  });
   waterMesh = new THREE.Mesh(geom, mat);
   waterMesh.position.set((xmin + xmax) / 2, (ymin + ymax) / 2, 0);
   scene.add(waterMesh);
@@ -472,7 +504,7 @@ function getLocSlug() {
 // without a scale (indices) are returned as-is; scaled dtypes are promoted to
 // Float32 so downstream code treats them like the old plain-array positions.
 function decodeArray(buf, d) {
-  const Ctor = { i16: Int16Array, u16: Uint16Array, u32: Uint32Array }[d.dtype];
+  const Ctor = { i16: Int16Array, u16: Uint16Array, u32: Uint32Array, f32: Float32Array }[d.dtype];
   const raw = new Ctor(buf, d.off, d.n);
   if (d.scale == null) return raw;
   const out = new Float32Array(d.n);

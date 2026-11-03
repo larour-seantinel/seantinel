@@ -13,7 +13,8 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         site: resolve(__dirname, 'site.html'),
-        dev: resolve(__dirname, 'dev.html')
+        dev: resolve(__dirname, 'dev.html'),
+        tesg: resolve(__dirname, 'tesg.html')
       }
     }
   }

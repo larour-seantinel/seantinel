@@ -4,6 +4,12 @@ Shipped work moved to [DONE.md](DONE.md). Pull in on demand.
 
 ## Next Up — Seantinel core
 
+- **Promote the TESG single-mesh approach to the other sites.** TESG (step 6)
+  renders Hermosa as one 44k-vert BAMG mesh across 400 km × 400 km with three
+  layered Esri drapes (5 km / 50 km / 400 km) and dual DEM (fine inner, coarse
+  outer). Looks cleaner than the three-tier stack and the viewer path is
+  simpler. Decide whether this replaces `_build_site()` for the four
+  production sites or stays side-by-side.
 - **Rebuild Redondo, Hermosa close-up, Manhattan, Mar del Plata through the single-mask pipeline.** Hermosa was done this session. Others still carry the old per-layer `_h<H>.exp` files + per-layer `outlines` in JSON. `python3 scripts/runme.py 2 3 4 5`.
 - **Residual OSM river-mouth false-ocean cells at super-far.** Hermosa super-far still shows a few blue specks ~20 km inland near Dana Point / Mission Viejo because the OSM `natural=coastline` chain follows river upstream a few km. DP simplification helps but doesn't erase 15 km-deep lobes. Options if we care: (a) GSHHS or Natural Earth coarse polygon (pre-cleaned, no river-mouth tags); (b) stricter inland cutoff on the super-far part of the chain.
 - **Multi-tile HAG mosaicing for 5 km+ boxes.** Current pipeline grabs `items[0]` from `3dep-lidar-hag` STAC search, which is one ~8×3 km tile. Hermosa gets 70% coverage, Redondo only 32% (rest default to 7 m). Fetch all overlapping items, build an in-memory mosaic keyed by UTM extent, then look up per-building height.
