@@ -4,14 +4,11 @@ Shipped work moved to [DONE.md](DONE.md). Pull in on demand.
 
 ## Next Up — Seantinel core
 
-- **Unblock Mar del Plata TESG build (Termux OOM).** `runme.py 4` has crashed
-  Termux 3 times in a row — see LEARNINGS "Termux OOM on Mar del Plata TESG".
-  The 822 MB stitched Copernicus DEM gets loaded as `np.float64` (~1.7 GB)
-  and OOMs an 8 GB phone. Pick one: (a) rasterio read with
-  `out_shape=(1000,1000)` so the 215 Mpx array never materializes;
-  (b) shrink non-CONUS `outer_half` from 200 km → 50 km; (c) add a
-  `MemAvailable < 2 GB → abort` pre-check. **Do NOT re-run `runme.py 4` as-is
-  (session will die).** 822 MB cached TIFF still sits in `data/Mardelplata/`.
+- **Rerun Mar del Plata when Overpass is up** for a proper coastline mask.
+  Current build fell back to the blanket `z<1→-5` heuristic because
+  `overpass-api.de` was returning 502. The resulting beach line is less
+  precise than Hermosa/Redondo/Manhattan (which have real OSM `.exp` pairs).
+  `python3 scripts/runme.py 4` — all caches hot, should finish in a minute.
 - **Residual OSM river-mouth false-ocean cells at super-far.** Hermosa
   super-far still shows a few blue specks ~20 km inland near Dana Point /
   Mission Viejo because the OSM `natural=coastline` chain follows river

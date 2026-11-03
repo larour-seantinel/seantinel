@@ -336,6 +336,46 @@ ocean problem, fix it in `_apply_ocean_mask()` / the EXP polygon, not in JS.
 - 2026-11-01: **Hierarchy mask (finest polygon wins).** `_apply_hierarchy_mask` takes an ordered list of (half_m, ocean_exp, land_exp) finest→coarsest. Each far-layer grid cell is classified by the first polygon whose bounding box contains it. The super-far polygon only decides for points outside the farfield extent; the farfield polygon only decides for points outside the inner extent. Cleans up small-scale noise in super-far cells that happen to fall inside the farfield box (where the finer orange polygon has a more accurate coastline). Doesn't help points beyond the outer-most finer layer's extent.
 - 2026-11-01: **Layer-seam gap on changed hole-cut.** When ocean cells switched from z=−5 to z=0 for far layers, water plane still hid them but the hole-cut criterion `anyInHole && anyLand → drop` created a visible blue ring one super-far cell wide (~6.7 km) around the farfield extent. Fix: switch to `allInHole && anyLand → drop` so cells straddling the hole boundary are kept and the farfield just draws on top of them. No gap, no z-fight (sinkM handles layer stacking).
 
+## Mar del Plata TESG unblocked by shrinking non-CONUS outer_half (2026-11-03)
+
+Non-CONUS `_build_tesg_site` now uses `outer_half=50_000, hmax=7_500` instead
+of `200_000, 30_000`. 100 km × 100 km Copernicus GLO-30 crop = ~11 Mpx float64
+(~90 MB) vs. the 215 Mpx (~1.7 GB) at the CONUS 400 km extent — fits easily on
+an 8 GB phone with ~1.5 GB available. Build ran clean to 64,675 verts in a
+single try. The `Image.MAX_IMAGE_PIXELS = None` escape hatch was reverted;
+PIL's DOS guard is now a useful backstop again (any future outer tile over
+178 Mpx will raise before OOM instead of after).
+
+Tradeoff: non-CONUS sites get a smaller horizon than CONUS. For Mar del Plata
+this is a non-issue — 200 km east is open Atlantic — but we'd want to revisit
+for a landlocked non-CONUS site where context matters.
+
+## Planetary Computer SAS downloads can reset mid-stream (2026-11-03)
+
+The signed-URL `GET` on a Copernicus COG blob 500-800 MB chunked-encoded
+transfer failed once with `requests.exceptions.ChunkedEncodingError:
+ConnectionResetError(104, 'Connection reset by peer')`. Not a client bug;
+Microsoft's blob storage occasionally drops long-lived streams.
+
+`_fetch_dem_copernicus` now wraps the download in a 3× exponential-backoff
+retry (`2^attempt` seconds). Only the download step retries — the STAC search
+and `/sas/v1/sign` call are quick and don't need wrapping. Rerun from cache
+sidestepped the failure the second time, but the retry handles the first-ever
+fetch of a new tile.
+
+## Chrome caches .bin aggressively — bin/json skew = "Invalid typed array length" (2026-11-03)
+
+Rebuilding a site changes `arrays.<x>.n` in `<slug>.json`, but Chrome may
+reuse an old cached `<slug>.bin` that's smaller than the new header expects.
+`new Uint32Array(buf, off, n)` then throws `Invalid typed array length: N`
+and the viewer surfaces the error in the top-left panel. Fix for the user:
+clear site data for seantinel.org, or long-press reload for "Reload bypass
+cache."
+
+Not fixing in code yet — one-time dislocation per rebuild cycle. If it bites
+more visitors we'd add a cache-buster: either rename `.bin` with a content
+hash, or append `?v=<header-hash>` on the fetch in `src/site.js`.
+
 ## Termux OOM on Mar del Plata TESG (2026-11-03)
 
 Three sessions crashed in a row — Termux process (holding Claude Code CLI)
