@@ -228,7 +228,17 @@ def _fetch_dem_copernicus(slug, center, half_m, out_name):
             "https://planetarycomputer.microsoft.com/api/sas/v1/sign",
             params={"href": item["assets"]["data"]["href"]},
             timeout=60).json()
-        raw.write_bytes(requests.get(sign["href"], timeout=240).content)
+        import time
+        for attempt in range(3):
+            try:
+                raw.write_bytes(requests.get(sign["href"], timeout=240).content)
+                break
+            except requests.exceptions.RequestException as e:
+                if attempt == 2:
+                    raise
+                wait = 2 ** attempt
+                print(f"  Copernicus fetch attempt {attempt+1} failed ({e.__class__.__name__}), retrying in {wait}s")
+                time.sleep(wait)
         print(f"  fetched Copernicus tile: {raw.name} ({raw.stat().st_size} bytes)")
     subprocess.run(
         ["gdal_translate", "-q",
@@ -1372,10 +1382,17 @@ def _build_tesg_site(site):
 
     slug = site["slug"]
     lat0, lon0 = site["center"]
-    outer_half = 200_000.0
+    if _in_conus(site["center"]):
+        outer_half = 200_000.0
+        hmax = 30_000.0
+    else:
+        # Non-CONUS uses Copernicus GLO-30 (~30 m/px). A 400 km × 400 km tile
+        # loads as a 1.7 GB float64 numpy array and OOM-kills Termux. Shrink
+        # to 100 km × 100 km (~90 MB) and scale hmax proportionally.
+        outer_half = 50_000.0
+        hmax = 7_500.0
     hmin = 4.0
     hmax_inner = 150.0
-    hmax = 30_000.0
     fine_r = site.get("fine_r", 400.0)
     inner_half = float(site["half_m"])
 
@@ -1422,7 +1439,6 @@ def _build_tesg_site(site):
 
     # 5 — DEM
     def _load_dem_grid(tif_path, center, half_m, elev_max=4500):
-        Image.MAX_IMAGE_PIXELS = None  # Copernicus at 200 km exceeds PIL's default bomb limit
         dem = np.array(Image.open(tif_path), dtype=np.float64)
         bad = ~np.isfinite(dem) | (dem < -200) | (dem > elev_max)
         if bad.any():
