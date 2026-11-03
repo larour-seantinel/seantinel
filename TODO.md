@@ -4,24 +4,55 @@ Shipped work moved to [DONE.md](DONE.md). Pull in on demand.
 
 ## Next Up — Seantinel core
 
-- **Promote the TESG single-mesh approach to the other sites.** TESG (step 6)
-  renders Hermosa as one 44k-vert BAMG mesh across 400 km × 400 km with three
-  layered Esri drapes (5 km / 50 km / 400 km) and dual DEM (fine inner, coarse
-  outer). Looks cleaner than the three-tier stack and the viewer path is
-  simpler. Decide whether this replaces `_build_site()` for the four
-  production sites or stays side-by-side.
-- **Rebuild Redondo, Hermosa close-up, Manhattan, Mar del Plata through the single-mask pipeline.** Hermosa was done this session. Others still carry the old per-layer `_h<H>.exp` files + per-layer `outlines` in JSON. `python3 scripts/runme.py 2 3 4 5`.
-- **Residual OSM river-mouth false-ocean cells at super-far.** Hermosa super-far still shows a few blue specks ~20 km inland near Dana Point / Mission Viejo because the OSM `natural=coastline` chain follows river upstream a few km. DP simplification helps but doesn't erase 15 km-deep lobes. Options if we care: (a) GSHHS or Natural Earth coarse polygon (pre-cleaned, no river-mouth tags); (b) stricter inland cutoff on the super-far part of the chain.
-- **Multi-tile HAG mosaicing for 5 km+ boxes.** Current pipeline grabs `items[0]` from `3dep-lidar-hag` STAC search, which is one ~8×3 km tile. Hermosa gets 70% coverage, Redondo only 32% (rest default to 7 m). Fetch all overlapping items, build an in-memory mosaic keyed by UTM extent, then look up per-building height.
-- Retry wrapper for Overpass + USGS 3DEP (2^n backoff, 3 tries) — transient 502s wasted 3 Manhattan rebuilds this session. See LEARNINGS "Flaky upstream services".
-- Take pictures of Long Beach, Torrance, Redondo and Hermosa Beach (Manhattan Beach Pier done — 29 photos in `data/manhattan_pier/photos/`, gitignored).
-- Generate QR codes for existing sites (`site.html?loc=hermosa` / `?loc=redondo` / `?loc=manhattan` / `?loc=mardelplata` / `?loc=hermosa_closeup`). URL shape is already settled on slug.
-- Add `hermosa_closeup` card to landing page.
-- **Landing page disclaimer link.** Viewer pages now have the ⚠ Disclaimer / Data & credits modals, but landing page still shows the raw author line only — add the same two pills (or at least a disclaimer link in the footer) so visitors see the legal disclosure before entering a viewer.
-- **Flat-array `buildBuildings()`.** Steady memory for the viewer is still ~13 MB because `hydrateBinary` reconstructs `buildings` as array of `{ring: [[x,y],...], h}` objects. Rewrite `buildBuildings()` to iterate `rings` / `ring_offsets` / `heights` typed arrays directly — cuts steady memory to ~3 MB. Not blocking; do when memory shows up as a problem on low-end phones.
-- Layer a 1 m/px inner NAIP tile (±500 m around center) over the current 4000² base — base is now ~1.25 m/px, but a sharper pier-area tile would still help.
-- Investigate 3DEP ExportImage TIFF corruption at ≥2000×2000 — PIL reads it as float garbage. Would unlock higher-res DEMs. Likely rasterio solves it.
-- Add more coastal sites (Long Beach, Torrance, Palos Verdes) — just needs lat/lon entries in `SITES` in `scripts/runme.py` (remember `elev_max` and `"buildings": True`).
+- **Unblock Mar del Plata TESG build (Termux OOM).** `runme.py 4` has crashed
+  Termux 3 times in a row — see LEARNINGS "Termux OOM on Mar del Plata TESG".
+  The 822 MB stitched Copernicus DEM gets loaded as `np.float64` (~1.7 GB)
+  and OOMs an 8 GB phone. Pick one: (a) rasterio read with
+  `out_shape=(1000,1000)` so the 215 Mpx array never materializes;
+  (b) shrink non-CONUS `outer_half` from 200 km → 50 km; (c) add a
+  `MemAvailable < 2 GB → abort` pre-check. **Do NOT re-run `runme.py 4` as-is
+  (session will die).** 822 MB cached TIFF still sits in `data/Mardelplata/`.
+- **Residual OSM river-mouth false-ocean cells at super-far.** Hermosa
+  super-far still shows a few blue specks ~20 km inland near Dana Point /
+  Mission Viejo because the OSM `natural=coastline` chain follows river
+  upstream a few km. DP simplification helps but doesn't erase 15 km-deep
+  lobes. Options if we care: (a) GSHHS or Natural Earth coarse polygon
+  (pre-cleaned, no river-mouth tags); (b) stricter inland cutoff on the
+  super-far part of the chain.
+- **Multi-tile HAG mosaicing for 5 km+ boxes.** Current pipeline grabs
+  `items[0]` from `3dep-lidar-hag` STAC search, which is one ~8×3 km tile.
+  Hermosa gets 70% coverage, Redondo only 32% (rest default to 7 m). Fetch
+  all overlapping items, build an in-memory mosaic keyed by UTM extent, then
+  look up per-building height.
+- **Delete orphaned public/data assets.** Retired by the TESG promotion but
+  still tracked: `hermosa_closeup.*`, `tesg.*`, and the old
+  `*_farfield_img.webp` / `*_superfarfield_img.webp` for hermosa/manhattan/
+  redondo (TESG uses `*_naip_mid.webp` / `*_naip_outer.webp`). Mar del Plata
+  still uses the old farfield file — leave those alone.
+- Retry wrapper for Overpass + USGS 3DEP (2^n backoff, 3 tries) — transient
+  502s wasted 3 Manhattan rebuilds last session. See LEARNINGS "Flaky
+  upstream services".
+- Take pictures of Long Beach, Torrance, Redondo and Hermosa Beach (Manhattan
+  Beach Pier done — 29 photos in `data/manhattan_pier/photos/`, gitignored).
+- Generate QR codes for existing sites (`site.html?loc=hermosa` / `?loc=redondo` / `?loc=manhattan` / `?loc=mardelplata`). URL shape is already settled on slug.
+- **Landing page disclaimer link.** Viewer pages now have the ⚠ Disclaimer /
+  Data & credits modals, but landing page still shows the raw author line
+  only — add the same two pills (or at least a disclaimer link in the
+  footer) so visitors see the legal disclosure before entering a viewer.
+- **Flat-array `buildBuildings()`.** Steady memory for the viewer is still
+  ~13 MB because `hydrateBinary` reconstructs `buildings` as array of
+  `{ring: [[x,y],...], h}` objects. Rewrite `buildBuildings()` to iterate
+  `rings` / `ring_offsets` / `heights` typed arrays directly — cuts steady
+  memory to ~3 MB. Not blocking; do when memory shows up as a problem on
+  low-end phones.
+- Layer a 1 m/px inner NAIP tile (±500 m around center) over the current
+  4000² base — base is now ~1.25 m/px, but a sharper pier-area tile would
+  still help.
+- Investigate 3DEP ExportImage TIFF corruption at ≥2000×2000 — PIL reads it
+  as float garbage. Would unlock higher-res DEMs. Likely rasterio solves it.
+- Add more coastal sites (Long Beach, Torrance, Palos Verdes) — just needs
+  lat/lon entries in `SITES` in `scripts/runme.py` (remember `elev_max` and
+  `"buildings": True`).
 
 ## Nice to have
 

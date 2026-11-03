@@ -55,8 +55,11 @@ step dispatch 1..5) surfaced three issues the Hermosa-only prototype didn't hit:
 
 - **PIL DecompressionBombError at 400 km × Copernicus GLO-30.** The outer DEM
   tile for Mar del Plata comes out ~13k × 13k = 215 M pixels, over PIL's
-  default 178 M bomb limit. Fix: set `Image.MAX_IMAGE_PIXELS = None` in
-  `_load_dem_grid` before `Image.open`. CONUS sites use 3DEP (not PIL) at the
+  default 178 M bomb limit. **DO NOT just set `Image.MAX_IMAGE_PIXELS = None`
+  — that guard is protecting us.** See "Termux OOM" below: removing it moves
+  the failure from a clean Python traceback to a hard Termux process kill. The
+  real fix is to resample on read (rasterio with `out_shape=(1000,1000)`) or
+  shrink the non-CONUS `outer_half`. CONUS sites use 3DEP (not PIL) at the
   outer scale, so this only bites non-CONUS.
 - **Missing `.exp` → `_apply_ocean_mask` crash.** Overpass 502s mid-build left
   Manhattan without an `*_ocean.exp` on first run. Guard: when the file is
@@ -333,6 +336,38 @@ ocean problem, fix it in `_apply_ocean_mask()` / the EXP polygon, not in JS.
 - 2026-11-01: **Hierarchy mask (finest polygon wins).** `_apply_hierarchy_mask` takes an ordered list of (half_m, ocean_exp, land_exp) finest→coarsest. Each far-layer grid cell is classified by the first polygon whose bounding box contains it. The super-far polygon only decides for points outside the farfield extent; the farfield polygon only decides for points outside the inner extent. Cleans up small-scale noise in super-far cells that happen to fall inside the farfield box (where the finer orange polygon has a more accurate coastline). Doesn't help points beyond the outer-most finer layer's extent.
 - 2026-11-01: **Layer-seam gap on changed hole-cut.** When ocean cells switched from z=−5 to z=0 for far layers, water plane still hid them but the hole-cut criterion `anyInHole && anyLand → drop` created a visible blue ring one super-far cell wide (~6.7 km) around the farfield extent. Fix: switch to `allInHole && anyLand → drop` so cells straddling the hole boundary are kept and the farfield just draws on top of them. No gap, no z-fight (sinkM handles layer stacking).
 
+## Termux OOM on Mar del Plata TESG (2026-11-03)
+
+Three sessions crashed in a row — Termux process (holding Claude Code CLI)
+hard-killed by Android OOM-killer within seconds of launching
+`python3 scripts/runme.py 4` (Mar del Plata TESG).
+
+- **Root cause.** `_build_tesg_site(mardelplata)` fetches 3 Copernicus GLO-30
+  COG tiles and stitches an **822 MB uncompressed GeoTIFF**
+  (`data/Mardelplata/mardelplata_dem_h200000.tif`, 215 M pixels). In
+  `_load_dem_grid`, `PIL.Image.open(...) → np.array(dtype=float64)` allocates
+  ~1.7 GB. Phone has 7.1 GB total, ~2.8 GB available (DeX + Chrome + Vite +
+  Claude Code already resident, 1.8 GB swap in use). OOM-killer picks the
+  Termux foreground app, not the Python child — so the Claude CLI dies, not
+  the build script. Background task output file is 0 bytes with no traceback.
+- **PIL's DOS guard was correctly protecting us.** The first attempt hit
+  `PIL.Image.DecompressionBombError` with a clean traceback and the Python
+  process exited normally. "Fixing" it by adding `Image.MAX_IMAGE_PIXELS =
+  None` removed the only guardrail standing between us and OOM, and all three
+  subsequent sessions died hard. **Rule: don't disable DOS guards without an
+  alternative memory ceiling (ulimit, rasterio downsample on read, or a
+  `MemAvailable` pre-check).**
+- **`/tmp` recurrence.** Session 444b2a7f launched the build with
+  `python3 ... | tee /tmp/mardelplata_rebuild.log` and got
+  `Permission denied` on tee — the Termux `/tmp` sandbox issue is already in
+  LEARNINGS. The Python child still ran and OOM'd anyway, but the pipeline
+  also silently dropped stdout. Writing build logs under `~` is a hard rule.
+- **Mitigations not yet applied.** Resample outer DEM on read with rasterio
+  (`out_shape=(1000,1000)`) so the 215 Mpx array never materializes; shrink
+  non-CONUS `outer_half` from 200 km → 50 km (open Atlantic context isn't
+  worth the memory); or add a `MemAvailable < 2 GB → abort` guard before
+  `_load_dem_grid`.
+
 ## Things that didn't work
 
 - 2026-10-22: Claude Code `statusLine` config in `settings.json` outputs to Claude Code's own TUI — not to GNU screen's hardstatus. Different mechanisms; don't conflate.
@@ -341,6 +376,7 @@ ocean problem, fix it in `_apply_ocean_mask()` / the EXP polygon, not in JS.
 - 2026-10-31: **Fixed `near=0.5, far=50000` on linear depth** to replace dynamic near/far. Pushed speculatively without local test. 1:100000 ratio → severe z-fight flicker on all surfaces at prod. Reverted. Dynamic near/far keyed to camDist is still the right scheme for this scene; don't swap it for static values. Also: never push a render change without `npm run dev` + visual check first.
 - 2026-10-31: **Misdiagnosed "transparent" walls as near-plane clipping** (hypothesized `camera.near = camDist * 0.1` was eating fronts of nearby buildings). Real cause was OSM ring winding + back-face culling. The near/far scheme was fine. Lesson: when a symptom could be either depth-buffer OR culling, test winding/`side: DoubleSide` first — it's a one-line change with no z-precision risk.
 - 2026-11-01: **DEM-veto as a safety net for a wrong ocean polygon.** Added `ocean = polygon AND dem ≤ 2 m` to the mask when the super-far polygon was flagging LA/Long Beach as ocean. Eric caught it: the super-far 3DEP DEM is garbage anyway (float noise near zero everywhere — see TODO "Investigate 3DEP ExportImage TIFF corruption"), so the veto triggered or didn't based on noise, not reality. Rule reaffirmed: polygon is truth. If it's wrong, fix the polygon, don't paper over with DEM.
+- 2026-11-03: **`Image.MAX_IMAGE_PIXELS = None` on Mar del Plata outer DEM.** PIL raised `DecompressionBombError` at 215 Mpx; Claude disabled the guard to "fix" the build. The guard was the only thing preventing OOM. Three Termux crashes in a row followed. See "Termux OOM on Mar del Plata TESG" — resample on read, don't disable DOS limits.
 
 ## Single adaptive ocean mask
 
