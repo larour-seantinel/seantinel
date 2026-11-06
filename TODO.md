@@ -4,6 +4,27 @@ Shipped work moved to [DONE.md](DONE.md). Pull in on demand.
 
 ## Next Up — Seantinel core
 
+- **CLAUDE tile = voice-chat with Claude Code in a screen session.**
+  Spec captured in LEARNINGS "Voice-assistant reference app". Implementation
+  outline, per Eric's photo mockup:
+  1. Click CLAUDE tile → **SESSIONS screen**. Lists `screen -ls` output as
+     rows; `NEW SESSION` CTA creates a fresh `screen -dmS <name> claude`.
+  2. Tap a session → **session view**. Live `screen -S <name> -X hardcopy`
+     tail shown in a scrollable transcript. Bottom bar: SPEAK / REPEAT /
+     SUMMARY / SESSIONS / DELETE SESSION.
+  3. SPEAK → `termux-microphone-record -f ~/rec.wav` → whisper.cpp
+     (generic model for v0; fine-tune on Eric's voice later) →
+     `screen -S <name> -X stuff "<text>\n"`. UI: orange SPEAK becomes
+     pink DONE + dark CANCEL + "listening… Ns" timer.
+  4. REPEAT → pull last assistant turn from the transcript → `termux-tts-speak`.
+  5. Settings pills: VOLUME / VOICE / READING SPEED. Skip LLM-backend row
+     (we always talk to Claude).
+  Needs: Termux:API already installed; whisper.cpp needs building for ARM64;
+  the `screen -X stuff` bridge needs Termux:Boot or a running Termux instance.
+- **Fine-tune whisper on Eric's voice.** Record ~30–60 min of dictated
+  prompts + ground-truth transcripts; LoRA on whisper-small, train on an
+  Oracle ARM free-tier VM (no GPU needed for a small LoRA). Only after v0
+  of the SPEAK button works with generic whisper.
 - **Landing page redesign review (Guillermo brief, `web design.docx`).**
   Local preview lives at `index-v2.html` — centered "FIND YOUR CITY" card,
   right-column QR tile + "How to be involved", Guillermo's SEANTINEL wordmark

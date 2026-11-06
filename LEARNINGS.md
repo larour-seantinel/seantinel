@@ -3,6 +3,51 @@
 Live notes. Shipped ISSM native-stack / APK / 3D rendering details live in
 [LEARNINGS-archive.md](LEARNINGS-archive.md) — pull in on demand.
 
+## Voice-assistant reference app (2026-11-05)
+
+Eric showed 5 phone photos (`~/storage/shared/DCIM/Camera/20261105_2214*.jpg`)
+of an existing voice-chat app he uses as the design target for the CLAUDE
+tile in `android-todo`. Feature list captured so we don't need to re-view:
+
+- **Sessions screen.** Vertical list of named chat sessions — each row shows
+  slug like `work/MailApp ~/Projects/MailApp · 3 h`, with one highlighted +
+  `NEW SESSION` CTA at the bottom. Gear + close pills top-left. Status
+  footer: "MIC IS THE LAPTOP — no headset on this Mac, check your AirPods".
+- **Session view.** Scrollable transcript (assistant + user interleaved,
+  `used Bash` tool-use lines shown inline). Bottom controls: **SPEAK 🎙**
+  (big, orange) + **REPEAT 🔊** (re-speaks last assistant turn) + **SUMMARY**
+  + **SESSIONS** (back) + **DELETE SESSION** (red). Green status strip above
+  the SPEAK button: "work/MailApp · idle" / "listening… 2s".
+- **Recording state.** Orange SPEAK → pink **DONE ✓** / dark **CANCEL**.
+  Timer "listening… Ns" live. Empty-transcript surfaces as "dictation
+  failed: empty transcript" in a yellow error strip above the SPEAK button.
+- **Settings.** VOLUME (%), VOICE (e.g., "Evan · US"), READING SPEED (wpm),
+  WHEEL MODE (NAVIGATION), LLM BACKEND (OLLAMA LOCAL), LOCAL MODEL
+  (`qwen3.5:27b`), DONE RECORDING / CANCEL / TEST. Each setting is a
+  `- value +` triplet of pills.
+
+This is the target UX for our `android-todo` CLAUDE tile — session per Termux
+`screen` session, SPEAK button pipes WAV → fine-tuned whisper → `screen -X
+stuff`, REPEAT pipes last assistant line → `termux-tts-speak` (or Piper for
+nicer voice). LLM backend row is irrelevant for us (we're always talking to
+Claude Code inside the screen session), but keep the voice/speed/volume
+pattern.
+
+## Voice pipeline — scoping decisions (2026-11-05)
+
+- Existing ASR (FUTO, Google, Whisper generic) rejected — doesn't handle
+  Eric's accent. Required: fine-tuned whisper on his voice. Training data
+  TBD.
+- Trigger lives **inside our app**, not Tasker / Bluetooth button / screen
+  keybinding. Reason: we already own `android-todo`, button click is the
+  simplest possible trigger.
+- Android injection into Claude Code: `screen -S <session> -X stuff "<text>\n"`.
+  The app must know which screen session maps to each visible session in the
+  SESSIONS list.
+- TTS back from Claude: cheapest path is a Claude Code Stop hook that pipes
+  the last assistant turn to `termux-tts-speak`. Upgrade to Piper (neural,
+  ~50 MB, real-time on Exynos X4 core) when the robotic voice bugs him.
+
 ## Google Drive — reading .docx (2026-11-05)
 
 - `mcp__gdrive__read` refuses `application/vnd.openxmlformats-...` with
