@@ -4,6 +4,10 @@ const STRINGS = {
     'index.intro1': 'Seantinel stands watch on the coast \u2014 a quiet observer of how rising seas will reshape the places we live, swim, and walk.',
     'index.intro2': 'Pick a city below to step into a 3D view of its shoreline. Slide the sea level up and see what the ocean reaches \u2014 street by street, pier by pier, building by building.',
     'index.pick': 'Choose a city',
+    'index.find_city': 'Find your city',
+    'index.scan_qr': 'Scan your QR',
+    'index.scan_qr_sub': 'Be part of it',
+    'index.involved': 'How to be involved',
     'loc.california': 'California, USA',
     'loc.buenosaires': 'Buenos Aires, Argentina',
 
@@ -45,6 +49,10 @@ const STRINGS = {
     'index.intro1': 'Seantinel vigila la costa \u2014 un observador silencioso de c\u00f3mo el ascenso del mar transformar\u00e1 los lugares donde vivimos, nadamos y caminamos.',
     'index.intro2': 'Elige una ciudad para entrar en una vista 3D de su costa. Sube el nivel del mar con el control deslizante y mira hasta d\u00f3nde llega el oc\u00e9ano \u2014 calle por calle, muelle por muelle, edificio por edificio.',
     'index.pick': 'Elige una ciudad',
+    'index.find_city': 'Encuentra tu ciudad',
+    'index.scan_qr': 'Escan\u00e9a tu QR',
+    'index.scan_qr_sub': 'S\u00e9 parte',
+    'index.involved': 'C\u00f3mo participar',
     'loc.california': 'California, EE. UU.',
     'loc.buenosaires': 'Buenos Aires, Argentina',
 

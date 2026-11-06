@@ -59,6 +59,8 @@ Three artifacts live, Seantinel core underway.
 
 **Live now on `seantinel.org`**: four sites, all TESG single-mesh — **Hermosa, Redondo, Manhattan Beach Pier (CONUS, 65k verts + ~17k buildings), Mar del Plata (Argentina, 65k verts, 520 OSM buildings at 7 m fallback height)**. `hermosa_closeup` retired. All at 1:1 Z, zoom clamped to 20–4000 m. Linear depth with per-frame near/far keyed to camera distance. Building walls on `DoubleSide`. Landing page author credit + EN/ES toggle + ocean background + lighthouse icon.
 
+**Local preview `index-v2.html`** (not deployed): Guillermo redesign from `web design.docx` — SEANTINEL wordmark + night-sky-mountains icon, hand-sketch hill background (placeholder for real painting), centered "FIND YOUR CITY" card with vertical city list, right column with dashed "SCAN YOUR QR" tile + "How to be involved" button. V2 features (top nav / interactive Earth / art-collection account / real-data sealine) deferred. Promotion to `index.html` waits on Guillermo's sign-off and the finished painting.
+
 **Non-CONUS note**: `_build_tesg_site` picks `outer_half=50_000, hmax=7_500` for non-CONUS (vs. `200_000, 30_000` for CONUS) because a 400 km × 400 km Copernicus GLO-30 tile loads as ~1.7 GB and OOMs Termux. Mar del Plata's outer horizon is 100 km × 100 km — mostly Atlantic anyway.
 
 **Payload (TESG sites)**: `<slug>.json` (1–2 KB header) + `<slug>.bin` (quantized sidecar, ~2–3 MB for 65k-vert mesh) + three WebP tiles — `<slug>_naip.webp` (inner 5 km, 2.1–2.9 MB at q=80) + `<slug>_naip_mid.webp` (mid context) + `<slug>_naip_outer.webp` (outer context).

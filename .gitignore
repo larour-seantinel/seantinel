@@ -37,6 +37,10 @@ public/dev/
 !public/data/*.jpg
 !public/data/*.webp
 !public/icon.png
+# Landing-page art (Guillermo brief, web design.docx).
+!public/wordmark.png
+!public/art_icon.jpeg
+!public/mockup_bg.jpeg
 !android-spike/assets/data/*.png
 # Launcher icons must ship with the APK.
 !android-spike/res/mipmap-*/

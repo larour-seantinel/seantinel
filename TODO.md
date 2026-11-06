@@ -4,6 +4,22 @@ Shipped work moved to [DONE.md](DONE.md). Pull in on demand.
 
 ## Next Up — Seantinel core
 
+- **Landing page redesign review (Guillermo brief, `web design.docx`).**
+  Local preview lives at `index-v2.html` — centered "FIND YOUR CITY" card,
+  right-column QR tile + "How to be involved", Guillermo's SEANTINEL wordmark
+  up top, hand-sketch mockup as background placeholder. Decide: promote to
+  `index.html` (and retire the current ocean-gradient version) once Guillermo
+  signs off and delivers the real hill-with-us painting.
+- **Real background painting from Guillermo.** The brief calls for a fixed
+  image of "you and me on top of a hill seeing the sea in the horizon, you
+  are pointing something." Current `public/mockup_bg.jpeg` is his hand-drawn
+  sketch — fine as placeholder, needs the finished art.
+- **Deferred V2 features (Guillermo brief).** Not built yet: top nav
+  (THE PROJECT / ABOUT US / COLLECT US / PREVIOUS PROJECTS); interactive
+  Earth replacing the city list (tap a place to open it); account / art-
+  exchange flow ("like Pokémon GO" — collect magnets from real-world
+  installations); sealine in the background connected to real sea-level
+  (past / present / projected). Project-specific typography still TBD.
 - **Rerun Mar del Plata when Overpass is up** for a proper coastline mask.
   Current build fell back to the blanket `z<1→-5` heuristic because
   `overpass-api.de` was returning 502. The resulting beach line is less

@@ -3,6 +3,23 @@
 Live notes. Shipped ISSM native-stack / APK / 3D rendering details live in
 [LEARNINGS-archive.md](LEARNINGS-archive.md) — pull in on demand.
 
+## Google Drive — reading .docx (2026-11-05)
+
+- `mcp__gdrive__read` refuses `application/vnd.openxmlformats-...` with
+  `binary mimeType not supported`. The custom server at
+  `~/.config/gdrive-mcp/server.mjs` only returns text. Bypass: hit Drive v3
+  REST directly with the cached access token:
+  `curl -H "Authorization: Bearer $TOKEN" ".../files/<id>?alt=media" -o foo.docx`.
+  Token lives in `~/.config/gdrive-mcp/.gdrive-server-credentials.json`
+  (`access_token` field); MCP server refreshes it on use.
+- .docx is a zip. Text: `word/document.xml`, concat all `<w:t>` runs grouped
+  by `<w:p>` for paragraphs. Embedded images: `word/media/image*.{png,jpeg}`
+  — extract with `zipfile.ZipFile(...).read(name)`, no XML parsing needed.
+- Parent-scoped Drive search (`'<folder-id>' in parents`) returned 0 even for
+  non-empty folders on our minimal MCP server. `name_contains` + `fullText`
+  queries work. Workaround: search by filename, use Drive's web UI to confirm
+  location.
+
 ## TESG — single-mesh variant (2026-11-03)
 
 - **TESG = Test Single Grid.** One continuous BAMG mesh over 400 km × 400 km
