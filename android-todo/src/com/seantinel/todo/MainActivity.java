@@ -2,11 +2,13 @@ package com.seantinel.todo;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.media.MediaRecorder;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Base64;
+import android.util.Log;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
@@ -43,6 +45,34 @@ public class MainActivity extends Activity {
         web.setWebChromeClient(new WebChromeClient());
         web.addJavascriptInterface(new Recorder(this), "AndroidRecorder");
         web.loadUrl("file:///android_asset/index.html");
+
+        startBridgeViaTermux();
+    }
+
+    // Ask Termux to start the bridge via RUN_COMMAND intent. Safe to call every
+    // launch — bridge.py exits immediately if port 8787 is already bound.
+    // Requires: `allow-external-apps=true` in ~/.termux/termux.properties.
+    private void startBridgeViaTermux() {
+        try {
+            Intent i = new Intent();
+            i.setClassName("com.termux", "com.termux.app.RunCommandService");
+            i.setAction("com.termux.RUN_COMMAND");
+            i.putExtra("com.termux.RUN_COMMAND_PATH",
+                "/data/data/com.termux/files/usr/bin/bash");
+            i.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", new String[]{
+                "-c",
+                "pgrep -f android-todo/bridge.py >/dev/null || " +
+                "python3 /data/data/com.termux/files/home/Seantinel/android-todo/bridge.py " +
+                ">>/data/data/com.termux/files/home/tmp/bridge.log 2>&1 &"
+            });
+            i.putExtra("com.termux.RUN_COMMAND_WORKDIR",
+                "/data/data/com.termux/files/home/Seantinel");
+            i.putExtra("com.termux.RUN_COMMAND_BACKGROUND", true);
+            i.putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0");
+            startService(i);
+        } catch (Exception e) {
+            Log.w("Assistant", "startBridgeViaTermux failed: " + e.getMessage());
+        }
     }
 
     @Override

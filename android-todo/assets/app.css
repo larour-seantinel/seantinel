@@ -3,6 +3,7 @@ html, body { margin: 0; padding: 0; background: #0d0f1f; color: #fff;
   font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased; }
 body { min-height: 100vh; zoom: 1.3; }
+body.in-claude-session { zoom: 1; }
 
 .screen { padding: 16px; }
 .hidden { display: none !important; }
@@ -80,9 +81,18 @@ body { min-height: 100vh; zoom: 1.3; }
 .modal-row .primary { background: #6155d6; color: #fff; }
 
 /* claude session cards */
-.session-card { width: 100%; text-align: left; border: 0; border-radius: 14px;
-  background: #1c203a; color: #fff; padding: 16px; display: flex; flex-direction: column; gap: 4px; }
-.session-card:active { filter: brightness(1.1); }
+.session-card { width: 100%; border-radius: 14px; background: #1c203a;
+  display: flex; align-items: stretch; gap: 0; overflow: hidden; }
+.session-card.new { background: #2b5c3a; padding: 16px; display: block; }
+.session-main { flex: 1; text-align: left; border: 0; background: transparent;
+  color: #fff; padding: 16px; display: flex; flex-direction: column; gap: 4px; }
+.session-main:active { filter: brightness(1.15); }
+.session-addtab { border: 0; background: #2b5c3a; color: #a8e6b6;
+  font-size: 13px; font-weight: 800; letter-spacing: 1px; padding: 0 16px; cursor: pointer; }
+.session-addtab:active { filter: brightness(1.2); }
+.session-kill { border: 0; background: #4b2232; color: #ff6b7a;
+  font-size: 26px; font-weight: 800; padding: 0 20px; cursor: pointer; }
+.session-kill:active { filter: brightness(1.2); }
 .session-title { font-weight: 700; font-size: 17px; letter-spacing: 0.3px; color: #fff; }
 .session-sub { color: #d8dcee; font-size: 12px; }
 
@@ -114,7 +124,7 @@ body { min-height: 100vh; zoom: 1.3; }
   display: flex; flex-direction: column;
   height: 100vh; width: 100vw;
 }
-#claude-session .topbar { display: none; }
+#claude-session .topbar { margin: 0; padding: 6px 8px; flex: 0 0 auto; }
 #claude-session .transcript {
   flex: 1 1 auto; height: auto; width: 100%;
   margin: 0; border-radius: 0;

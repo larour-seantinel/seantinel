@@ -26,6 +26,8 @@ function saveCfg(c) { S.cfg = c; localStorage.setItem('cfg', JSON.stringify(c));
 const show = id => {
   document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
   document.getElementById(id).classList.remove('hidden');
+  document.body.classList.toggle('in-claude-session', id === 'claude-session');
+  window.scrollTo(0, 0);
 };
 document.querySelectorAll('[data-tile]').forEach(b => b.addEventListener('click', () => {
   const t = b.dataset.tile;
@@ -341,22 +343,86 @@ async function loadClaudeSessions() {
     const r = await fetch(BRIDGE + '/sessions', { cache: 'no-store' });
     const rows = await r.json();
     count.textContent = rows.length + (rows.length === 1 ? ' tab' : ' tabs');
-    if (!rows.length) {
-      status.textContent = 'no claude sessions. start one with `screen -S <name> claude`.';
-      return;
-    }
-    status.textContent = '';
+    status.textContent = rows.length ? '' : 'no claude sessions.';
     for (const row of rows) {
-      const card = document.createElement('button');
+      const card = document.createElement('div');
       card.className = 'session-card';
-      card.innerHTML =
+      const main = document.createElement('button');
+      main.className = 'session-main';
+      main.innerHTML =
         '<div class="session-title">' + row.label + '</div>' +
         '<div class="session-sub">' + row.cwd + '  ·  pid ' + row.pid + '  ·  ' + row.age + '</div>';
-      card.addEventListener('click', () => openClaudeSession(row));
+      main.addEventListener('click', () => openClaudeSession(row));
+      const addTab = document.createElement('button');
+      addTab.className = 'session-addtab';
+      addTab.textContent = '+ TAB';
+      addTab.addEventListener('click', (e) => { e.stopPropagation(); newClaudeTab(row); });
+      const kill = document.createElement('button');
+      kill.className = 'session-kill';
+      kill.textContent = '×';
+      kill.addEventListener('click', (e) => { e.stopPropagation(); killClaudeSession(row); });
+      card.appendChild(main);
+      card.appendChild(addTab);
+      card.appendChild(kill);
       list.appendChild(card);
     }
+    const addBtn = document.createElement('button');
+    addBtn.className = 'session-card new';
+    addBtn.innerHTML = '<div class="session-title">+ NEW SESSION</div>' +
+      '<div class="session-sub">new screen + claude in Tab1</div>';
+    addBtn.addEventListener('click', newClaudeSession);
+    list.appendChild(addBtn);
   } catch (e) {
     status.textContent = 'bridge offline (' + e.message + '). start with: python3 ~/Seantinel/android-todo/bridge.py';
+  }
+}
+
+async function newClaudeTab(row) {
+  const status = document.getElementById('claude-status');
+  // Disable every +TAB button for this sid to block double-fires during the
+  // 2.5 s boot window — list refresh will re-enable them on next render.
+  document.querySelectorAll('.session-addtab').forEach(b => b.disabled = true);
+  status.textContent = 'adding tab to ' + row.sid + '…';
+  try {
+    const r = await fetch(BRIDGE + '/session/addtab?sid=' + encodeURIComponent(row.sid), { method: 'POST' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    setTimeout(loadClaudeSessions, 2500);
+  } catch (e) {
+    status.textContent = 'add tab failed: ' + e.message;
+    document.querySelectorAll('.session-addtab').forEach(b => b.disabled = false);
+  }
+}
+
+async function killClaudeSession(row) {
+  if (!confirm('Kill ' + row.label + '?')) return;
+  const status = document.getElementById('claude-status');
+  status.textContent = 'killing ' + row.label + '…';
+  try {
+    const url = BRIDGE + '/session/delete?sid=' + encodeURIComponent(row.sid) +
+                '&tab=' + encodeURIComponent(row.tab);
+    const r = await fetch(url, { method: 'POST' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    await loadClaudeSessions();
+  } catch (e) {
+    status.textContent = 'kill failed: ' + e.message;
+  }
+}
+
+async function newClaudeSession() {
+  const status = document.getElementById('claude-status');
+  status.textContent = 'spawning…';
+  try {
+    const r = await fetch(BRIDGE + '/session/new', { method: 'POST' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const row = await r.json();
+    status.textContent = 'spawned ' + row.sid + ', booting claude…';
+    await loadClaudeSessions();
+    status.textContent = 'opening ' + row.sid + '…';
+    // Give claude a couple of seconds to boot before we attach — otherwise
+    // the transcript polls land on an empty screen and look dead.
+    setTimeout(() => openClaudeSession(row), 2000);
+  } catch (e) {
+    status.textContent = 'spawn failed: ' + e.message;
   }
 }
 

@@ -3,6 +3,61 @@
 Live notes. Shipped ISSM native-stack / APK / 3D rendering details live in
 [LEARNINGS-archive.md](LEARNINGS-archive.md) — pull in on demand.
 
+## `body { zoom: 1.3 }` cascades past child `zoom: 1` (2026-11-06)
+
+- **Symptom.** Opening a claude-session in the Assistant APK rendered the
+  transcript 30% wider than the viewport — text clipped at the right edge,
+  SPEAK pill shifted off-screen.
+- **Cause.** CSS `zoom` is multiplicative, not resettable. `body { zoom: 1.3 }`
+  (added for Samsung DeX font-size relief) scales every descendant; a child
+  rule `#claude-session.screen { zoom: 1 }` is a no-op because 1× does not
+  cancel the parent scale.
+- **Fix.** Toggle a body class per screen: `body.in-claude-session { zoom: 1 }`
+  overrides the inherited 1.3 for the transcript view only. JS adds/removes
+  the class inside `show(id)`.
+
+## Screen window numbering ≠ shell-PID order (2026-11-06)
+
+- **Symptom.** After tapping `+ TAB`, the new window sometimes appeared as
+  "Tab1" and the existing window became "Tab2", even though the user hadn't
+  deleted anything.
+- **Cause.** `list_sessions()` ordered tabs by shell PID. Android recycles
+  PIDs around 32768 — the newly spawned bash had PID 5622, older bash had
+  19773. Sorted ascending, 5622 came first → Tab1.
+- **Fix.** Use screen's own window index. Each shell inherits a `WINDOW=<n>`
+  env var; read `/proc/<shell_pid>/environ` and parse. Tab index = window + 1.
+  Stable across PID wrap and matches what `screen -X screen <n>` created.
+
+## `screen -X screen bash` creates a window but focus doesn't follow (2026-11-06)
+
+- **Symptom.** `/session/addtab` ran `screen -S X -X screen bash` then
+  `screen -S X -p . -X stuff "claude\r"`. New window appeared (bash child
+  present) but no claude booted — stuff landed in the old window.
+- **Cause.** In a *detached* screen session, "current window" (`-p .`) isn't
+  guaranteed to be the one just created. Only `screen -X next` / keyboard
+  input moves focus; `-X screen` doesn't.
+- **Fix.** Pick the next window number explicitly:
+  `next = max(existing_windows) + 1`, run `screen -X screen <next>`, then
+  target it by number: `screen -p <next> -X stuff "cd ~/Seantinel && claude\r"`.
+  Deterministic regardless of attach state.
+
+## Bridge autostart on APK launch via Termux RUN_COMMAND intent (2026-11-06)
+
+- **Prereq.** `allow-external-apps=true` in `~/.termux/termux.properties`
+  (empty file works — any kv pair enables the feature) + APK manifest has
+  `<uses-permission android:name="com.termux.permission.RUN_COMMAND" />`.
+- **Firing the intent.** `Intent.setClassName("com.termux",
+  "com.termux.app.RunCommandService")` + action
+  `"com.termux.RUN_COMMAND"` + extras `RUN_COMMAND_PATH` (absolute path to
+  binary — not `python3`, but `/data/data/com.termux/files/usr/bin/python3`)
+  + `RUN_COMMAND_ARGUMENTS` (String[]) + `RUN_COMMAND_BACKGROUND=true`.
+  Guard with `pgrep -f` so repeated launches don't spawn duplicates.
+- **First launch.** Termux shows a one-time "allow external app" dialog.
+  Also installs Termux if not present (RUN_COMMAND starts the service).
+- **Boot-time autostart** uses `~/.termux/boot/start-bridge` (requires the
+  Termux:Boot app from F-Droid). RUN_COMMAND covers the "Termux got killed"
+  case the boot script can't.
+
 ## Bridge must be threaded — whisper blocks polls (2026-11-05)
 
 - **Symptom.** After adding `/transcribe` (whisper runs 2-3 s), the WebView

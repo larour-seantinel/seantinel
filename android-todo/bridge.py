@@ -33,8 +33,22 @@ def _run(cmd, timeout=3):
         return ""
 
 
+def _window_of(shell_pid):
+    """Read $WINDOW from the shell's environ. screen sets this to the window
+    index (0-based). Returns None if unreadable."""
+    try:
+        with open(f"/proc/{shell_pid}/environ", "rb") as f:
+            for kv in f.read().split(b"\0"):
+                if kv.startswith(b"WINDOW="):
+                    return int(kv[7:])
+    except (OSError, ValueError):
+        pass
+    return None
+
+
 def _all_shells_by_session():
-    """{screen_pid: [shell_pid, ...]} — shells parented to each screen master."""
+    """{screen_pid: [(window_idx, shell_pid), ...]} — shells parented to each
+    screen master, sorted by screen's window index (not PID, which can wrap)."""
     out = _run(["ps", "-e", "-o", "pid=,ppid=,comm="])
     shells = {}
     for ln in out.splitlines():
@@ -43,7 +57,10 @@ def _all_shells_by_session():
             continue
         pid, ppid, comm = int(parts[0]), int(parts[1]), parts[2].strip()
         if comm == "bash" or comm.endswith("/bash"):
-            shells.setdefault(ppid, []).append(pid)
+            w = _window_of(pid)
+            if w is None:
+                w = 1 << 30  # unknown → sort to end
+            shells.setdefault(ppid, []).append((w, pid))
     for k in shells:
         shells[k].sort()
     return shells
@@ -99,17 +116,16 @@ def _fmt_age(sec):
 
 
 def list_sessions():
-    """Only tabs with claude running. Tab index = PID order (heuristic)."""
+    """Only tabs with claude running. Tab index = screen window number + 1."""
     shells_by_session = _all_shells_by_session()
     now = time.time()
     rows = []
     for spid, name, mtime in _screen_sockets():
-        shells = shells_by_session.get(spid, [])
-        for idx, sh in enumerate(shells):
+        for win, sh in shells_by_session.get(spid, []):
             cpid = _claude_pid_for_shell(sh)
             if cpid is None:
                 continue
-            tab = f"Tab{idx+1}"
+            tab = f"Tab{win+1}"
             rows.append({
                 "sid": name,
                 "tab": tab,
@@ -234,6 +250,28 @@ def transcribe_apk_upload(body_bytes):
     return _transcribe_m4a(APK_M4A, "apk")
 
 
+def new_session():
+    """Spawn `screen -dmS sessionN bash`, then stuff `claude\\r` into tab 0.
+    Names are session1, session2, ... — first free index wins."""
+    existing = {name for _, name, _ in _screen_sockets()}
+    n = 1
+    while f"session{n}" in existing:
+        n += 1
+    sid = f"session{n}"
+    workdir = os.path.join(HOME, "Seantinel")
+    # -dm = detached + make new, bash = our discovery anchor (needs bash parent
+    # for `node claude` child in list_sessions). -c chdir keeps the session in
+    # the project root.
+    subprocess.run(
+        ["screen", "-dmS", sid, "bash"],
+        cwd=workdir, timeout=5,
+    )
+    # Give screen a beat to finish creating the socket + spawn bash.
+    time.sleep(0.3)
+    _run(["screen", "-S", sid, "-p", "0", "-X", "stuff", "cd ~/Seantinel && claude\r"])
+    return {"sid": sid, "tab": "Tab1", "label": f"{sid} / Tab1"}
+
+
 def stuff_into_tab(sid, tab, text):
     m = re.match(r"Tab(\d+)", tab)
     if not m: return False
@@ -278,6 +316,47 @@ class H(http.server.BaseHTTPRequestHandler):
         if u.path == "/record/start":
             record_start()
             return self._json({"ok": True})
+        if u.path == "/session/new":
+            return self._json(new_session())
+        if u.path == "/session/delete":
+            sid, tab = q.get("sid", ""), q.get("tab", "")
+            if not sid:
+                return self._json({"ok": False, "error": "no sid"}, 400)
+            # Count windows in this session; if a specific tab is named and
+            # there are 2+, kill just that window. Otherwise quit the whole
+            # screen session.
+            spid = next((p for p, name, _ in _screen_sockets() if name == sid), None)
+            shells = _all_shells_by_session().get(spid, []) if spid else []
+            m = re.match(r"Tab(\d+)$", tab)
+            if m and len(shells) > 1:
+                win = int(m.group(1)) - 1
+                _run(["screen", "-S", sid, "-p", str(win), "-X", "kill"])
+                return self._json({"ok": True, "sid": sid, "killed": f"Tab{win+1}"})
+            _run(["screen", "-S", sid, "-X", "quit"])
+            return self._json({"ok": True, "sid": sid, "killed": "session"})
+        if u.path == "/session/addtab":
+            sid = q.get("sid", "")
+            if not sid:
+                return self._json({"ok": False, "error": "no sid"}, 400)
+            # Count existing shells in this session, then create a new window
+            # with an explicit index so we can target it reliably (the detached
+            # screen's "current window" is whatever was last selected, which
+            # isn't guaranteed to be the one we just made).
+            spid = None
+            for p, name, _ in _screen_sockets():
+                if name == sid:
+                    spid = p; break
+            if spid is None:
+                return self._json({"ok": False, "error": "unknown sid"}, 404)
+            # First free window index = max(existing) + 1.
+            windows = [w for w, _ in _all_shells_by_session().get(spid, [])
+                       if w < (1 << 30)]
+            next_win = (max(windows) + 1) if windows else 0
+            _run(["screen", "-S", sid, "-X", "screen", str(next_win)])
+            time.sleep(0.4)
+            _run(["screen", "-S", sid, "-p", str(next_win), "-X",
+                  "stuff", "cd ~/Seantinel && claude\r"])
+            return self._json({"ok": True, "sid": sid, "tab": f"Tab{next_win+1}"})
         if u.path == "/record/stop":
             sid, tab = q.get("sid",""), q.get("tab","")
             info = record_stop_and_transcribe()

@@ -4,31 +4,32 @@ Shipped work moved to [DONE.md](DONE.md). Pull in on demand.
 
 ## Next Up — Seantinel core
 
-- **Assistant app v0 shipped this session.** CLAUDE tile lists claude-running
-  screen tabs, opens read-only polling transcript, SPEAK button records via
-  `termux-microphone-record` → ffmpeg → whisper.cpp (base multilingual, 142 MB)
-  → `screen -X stuff` with a trailing CR. Both blink + enter bugs fixed.
-  Follow-ups listed below.
+- **Assistant app session management shipped 2026-11-06.** `+ NEW SESSION`
+  (spawns `screen -dmS sessionN bash` + stuffs `claude\r`), per-row `+ TAB`
+  (adds a window to an existing screen), per-row `×` (kills just that tab;
+  kills the whole screen only when it's the last tab). Bridge autostart on
+  APK launch via Termux `RUN_COMMAND` intent + boot script at
+  `~/.termux/boot/start-bridge`. Fixed zoom overflow in transcript view,
+  topbar restore (back `←` + refresh), scroll-to-top on screen change.
+  Tabs numbered by screen's `$WINDOW` (stable across PID wrap).
 
 - **Fine-tune whisper on Eric's voice (Phase 2).** v0 uses generic
   `ggml-base.bin` multilingual; handles French-accented English OK but not
   great. Record ~30–60 min of dictated prompts + ground-truth transcripts,
   LoRA on whisper-small, train on Oracle ARM free-tier VM (no GPU needed).
   Swap point is `transcribe()` in `android-todo/bridge.py`.
-- **Bridge autostart.** Today the bridge must be hand-started in Termux
-  (`python3 ~/Seantinel/android-todo/bridge.py &`). Wrap in a Termux:Boot
-  script so it survives reboot / Termux restart. Also add a watchdog
-  endpoint `/ping` so the WebView can tell "bridge is dead" from "no claude
-  sessions".
-- **New-session / delete-session actions in the Assistant app.** v0 only
-  attaches to existing tabs. Add: `NEW SESSION` button → spawn
-  `screen -dmS claude-<slug> claude` in `~/Seantinel`. Row long-press →
-  `DELETE SESSION` → `screen -S <sid> -X quit`.
-- **SUMMARY + REPEAT tiles under SPEAK.** Reference app has a 3-tile row
-  (SESSIONS done, SUMMARY + REPEAT TODO). REPEAT = pull last assistant
-  turn from `hardcopy`, feed to `termux-tts-speak` (Piper later for a
-  nicer voice). SUMMARY = ask Claude in the active session to summarize
-  the transcript.
+- **Install Termux:Boot + Termux:API from F-Droid.** `~/.termux/boot/start-bridge`
+  is already in place, waiting for the Termux:Boot app. RUN_COMMAND pathway
+  needs Termux:API (already installed for mic). On first APK launch after
+  reinstall, accept the Termux "allow external app" dialog.
+- **`/ping` watchdog endpoint on the bridge.** So the WebView can distinguish
+  "bridge dead" from "no claude sessions" without tripping the full
+  `/sessions` scan.
+- **SUMMARY + REPEAT tiles under SPEAK.** Reference app has a 3-tile row.
+  SESSIONS back-tile was removed 2026-11-06 (topbar `←` handles it).
+  REPEAT = pull last assistant turn from `hardcopy`, feed to
+  `termux-tts-speak` (Piper later for a nicer voice). SUMMARY = ask Claude
+  in the active session to summarize the transcript.
 - **Scroll-position lock in transcript.** Current logic always auto-scrolls
   to bottom when the user was at the bottom. If the user scrolls up to read
   older output, don't jerk them back on the next poll (works today, but UX
