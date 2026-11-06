@@ -401,6 +401,15 @@ let speakRecording = false;
 let speakStart = 0;
 let speakTimer = null;
 
+const NATIVE_REC = (typeof AndroidRecorder !== 'undefined' && AndroidRecorder !== null);
+
+function b64ToBytes(b64) {
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr;
+}
+
 document.getElementById('speak-btn').addEventListener('click', async () => {
   const label = document.getElementById('claude-session-label').textContent;
   const [sid, tab] = label.split(' / ');
@@ -412,7 +421,12 @@ document.getElementById('speak-btn').addEventListener('click', async () => {
     btn.disabled = true;
     st.textContent = 'opening mic…';
     try {
-      await fetch(BRIDGE + '/record/start', { method: 'POST' });
+      if (NATIVE_REC) {
+        const r = JSON.parse(AndroidRecorder.start());
+        if (!r.ok) throw new Error(r.error || 'start failed');
+      } else {
+        await fetch(BRIDGE + '/record/start', { method: 'POST' });
+      }
       speakRecording = true;
       speakStart = Date.now();
       btn.classList.add('listening');
@@ -423,7 +437,7 @@ document.getElementById('speak-btn').addEventListener('click', async () => {
       }, 500);
       st.textContent = 'listening… 0s';
     } catch (e) {
-      st.textContent = 'bridge offline: ' + e.message;
+      st.textContent = 'mic error: ' + e.message;
     } finally {
       btn.disabled = false;
     }
@@ -435,11 +449,33 @@ document.getElementById('speak-btn').addEventListener('click', async () => {
   clearInterval(speakTimer); speakTimer = null;
   st.textContent = 'transcribing…';
   try {
-    const r = await fetch(BRIDGE + '/record/stop?sid=' + encodeURIComponent(sid) + '&tab=' + encodeURIComponent(tab), { method: 'POST' });
-    const j = await r.json();
-    st.textContent = j.text ? (j.stuffed ? 'sent: ' : 'heard: ') + '"' + j.text + '"' : 'empty transcript';
+    let j;
+    if (NATIVE_REC) {
+      const s = JSON.parse(AndroidRecorder.stop());
+      if (!s.ok) throw new Error(s.error || 'stop failed');
+      const bytes = b64ToBytes(s.b64);
+      const r = await fetch(BRIDGE + '/transcribe?sid=' + encodeURIComponent(sid) + '&tab=' + encodeURIComponent(tab),
+                            { method: 'POST', body: bytes });
+      j = await r.json();
+    } else {
+      const r = await fetch(BRIDGE + '/record/stop?sid=' + encodeURIComponent(sid) + '&tab=' + encodeURIComponent(tab), { method: 'POST' });
+      j = await r.json();
+    }
+    const db = (j.max_db === null || j.max_db === undefined) ? '?' : (j.max_db.toFixed(1) + ' dB');
+    const kb = j.bytes ? (j.bytes / 1024).toFixed(1) + ' KB' : '0';
+    const tag = ' [' + db + ', ' + kb + ']';
+    if (j.text && j.stuffed) {
+      // Success: clear the status line so the transcript isn't pushed down.
+      st.textContent = '';
+    } else if (j.text) {
+      st.textContent = 'heard (not sent): "' + j.text + '"' + tag;
+    } else if (j.max_db !== null && j.max_db < -30) {
+      st.textContent = 'SILENT MIC — audio routing failed' + tag;
+    } else {
+      st.textContent = 'empty transcript' + tag;
+    }
   } catch (e) {
-    st.textContent = 'bridge error: ' + e.message;
+    st.textContent = 'error: ' + e.message;
   } finally {
     speakRecording = false;
     btn.disabled = false;

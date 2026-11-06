@@ -3,6 +3,55 @@
 Live notes. Shipped ISSM native-stack / APK / 3D rendering details live in
 [LEARNINGS-archive.md](LEARNINGS-archive.md) — pull in on demand.
 
+## Bridge must be threaded — whisper blocks polls (2026-11-05)
+
+- **Symptom.** After adding `/transcribe` (whisper runs 2-3 s), the WebView
+  intermittently reported "bridge offline / failed to fetch" during the
+  transcription window.
+- **Cause.** `http.server.HTTPServer` is single-threaded. While one
+  request is in a 3 s whisper call, `/hardcopy` polls (1.5 s interval)
+  queue up and WebView gives up with a fetch error.
+- **Fix.** Swap to `http.server.ThreadingHTTPServer`. One line change.
+
+## SESSIONS back button + reference-app parity (2026-11-05)
+
+- Reference app from Eric's photos puts a secondary tile row under SPEAK:
+  SESSIONS / SUMMARY / REPEAT. v0 only wires SESSIONS (same handler as the
+  top-left `←`: `data-nav="claude"` + stops transcript polling). SUMMARY
+  and REPEAT are TODO.
+- Also brightened dim text across `app.css` — transcript/status/section
+  labels all pushed to white or near-white, bolder weight. Original
+  `#a4a9bf` / `#8a90a8` was unreadable on Samsung DeX in low light.
+
+## Android 10+ foreground app owns the mic — exclusively (2026-11-05)
+
+- **Symptom.** SPEAK button in the Assistant APK captured pure silence
+  (`max_db = -91.0 dB`, whisper hallucinated "you"). Same bridge, same
+  `termux-microphone-record`, called from a Termux shell with the APK
+  backgrounded: `-14.8 dB`, clean transcript.
+- **Root cause.** Since Android 10 (API 29) the OS gives the foreground app
+  *exclusive* access to audio input. When the Assistant APK is foreground,
+  Termux:API is background — its `AudioRecord` returns zero-filled frames
+  and `termux-microphone-record` writes an AAC file of digital silence.
+  `AudioManager.abandonAudioFocus()` does NOT help; focus is about
+  playback, not capture.
+- **Diagnostic that nailed it.** `max_db` + byte count in `/record/stop`
+  reply + `~/tmp/bridge-mic.log`. Shell vs curl-triggered-bridge vs
+  APK-triggered-bridge produced −14.8 / −17.5 / −91.0 dB respectively,
+  isolating the APK foreground as the culprit.
+- **Fix.** Move the capture into the APK itself. `MediaRecorder` in
+  `MainActivity.java` behind an `@JavascriptInterface` (`AndroidRecorder`),
+  writes m4a to `getFilesDir()`, returns base64 bytes to JS on stop.
+  JS POSTs bytes to a new bridge endpoint `/transcribe?sid&tab` which runs
+  the existing ffmpeg→whisper→`screen -X stuff` pipeline. Needs
+  `RECORD_AUDIO` in manifest + runtime permission request. Keep the old
+  bridge `/record/start`+`/record/stop` endpoints for the shell test
+  script (`mic-test.sh` / `mic-test-bridge.sh`).
+- **Confirmation.** First APK-native capture: `max_db=0.0 dB`
+  (ceiling, hot signal), full sentence transcribed.
+- **Takeaway.** Any future Android app that needs mic input MUST capture
+  it itself. Don't try to proxy mic access through Termux:API.
+
 ## Assistant app — CLAUDE tile v0 shipped (2026-11-05)
 
 - **Architecture.** WebView (TO-DO app, Android UID) can't see Termux processes
@@ -31,8 +80,10 @@ Live notes. Shipped ISSM native-stack / APK / 3D rendering details live in
   in the manifest `<application>` tag **and**
   `webSettings.setMixedContentMode(MIXED_CONTENT_ALWAYS_ALLOW)` in Java.
   Without either, fetch fails silently with a CORS/Net error.
-- **Permissions.** `RECORD_AUDIO` is **not** needed in our manifest. Recording
-  happens inside Termux:API's own UID, which already has the mic grant.
+- **Permissions.** ~~`RECORD_AUDIO` is not needed~~ — **superseded 2026-11-05**
+  by the Android 10 foreground-exclusive-mic finding above. Current build
+  declares `RECORD_AUDIO` and captures via `MediaRecorder` in the APK itself.
+  Termux:API mic path kept for shell tests only.
 - **termux-microphone-record format.** No WAV output — only aac/amr/opus
   (`-e <enc>`). Pipeline: record `.m4a` → `ffmpeg -ar 16000 -ac 1` → WAV →
   whisper-cli. ffmpeg is a `pkg install ffmpeg` away.

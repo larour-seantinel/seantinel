@@ -165,28 +165,73 @@ def record_start():
         time.sleep(0.1)
 
 
-def record_stop_and_transcribe():
-    _run(["termux-microphone-record", "-q"], timeout=5)
-    if not os.path.exists(REC_M4A):
-        return ""
-    try: os.remove(REC_WAV)
+MIC_LOG = os.path.expanduser("~/tmp/bridge-mic.log")
+APK_M4A = os.path.expanduser("~/tmp/speak_apk.m4a")
+
+
+def _max_db(wav_path):
+    """Return peak dBFS as float, or None on failure."""
+    try:
+        r = subprocess.run(
+            ["ffmpeg", "-i", wav_path, "-af", "volumedetect", "-f", "null", "-"],
+            capture_output=True, text=True, timeout=10,
+        )
+        m = re.search(r"max_volume:\s*(-?[\d.]+)\s*dB", r.stderr)
+        return float(m.group(1)) if m else None
+    except Exception:
+        return None
+
+
+def _transcribe_m4a(m4a_path, tag):
+    """Shared: m4a -> wav -> whisper -> {text, bytes, max_db}, plus log."""
+    info = {"text": "", "bytes": 0, "max_db": None}
+    if not os.path.exists(m4a_path):
+        return info
+    info["bytes"] = os.path.getsize(m4a_path)
+    wav = m4a_path.rsplit(".", 1)[0] + ".wav"
+    try: os.remove(wav)
     except OSError: pass
     r = subprocess.run(
-        ["ffmpeg", "-y", "-i", REC_M4A, "-ar", "16000", "-ac", "1", REC_WAV],
+        ["ffmpeg", "-y", "-i", m4a_path, "-ar", "16000", "-ac", "1", wav],
         capture_output=True, text=True, timeout=30,
     )
-    if r.returncode != 0 or not os.path.exists(REC_WAV):
-        return ""
+    if r.returncode != 0 or not os.path.exists(wav):
+        return info
+    info["max_db"] = _max_db(wav)
     r = subprocess.run(
-        [WHISPER_CLI, "-m", WHISPER_MODEL, "-f", REC_WAV,
+        [WHISPER_CLI, "-m", WHISPER_MODEL, "-f", wav,
          "-l", "en", "-nt", "--no-prints"],
         capture_output=True, text=True, timeout=120,
     )
     text = r.stdout.strip()
-    # whisper emits sentinels for silence/music/noise — treat as empty.
     if re.fullmatch(r"[\[\(][^\]\)]+[\]\)]", text or ""):
-        return ""
-    return text
+        text = ""
+    info["text"] = text
+    try:
+        os.makedirs(os.path.dirname(MIC_LOG), exist_ok=True)
+        with open(MIC_LOG, "a") as f:
+            f.write(
+                f"{time.strftime('%Y-%m-%d %H:%M:%S')}  src={tag}  "
+                f"bytes={info['bytes']}  max_db={info['max_db']}  "
+                f"text={text!r}\n"
+            )
+    except OSError:
+        pass
+    return info
+
+
+def record_stop_and_transcribe():
+    """Shell/bridge-mic path (termux-microphone-record)."""
+    _run(["termux-microphone-record", "-q"], timeout=5)
+    return _transcribe_m4a(REC_M4A, "shell")
+
+
+def transcribe_apk_upload(body_bytes):
+    """APK-native MediaRecorder path: bytes come in via HTTP POST body."""
+    os.makedirs(os.path.dirname(APK_M4A), exist_ok=True)
+    with open(APK_M4A, "wb") as f:
+        f.write(body_bytes)
+    return _transcribe_m4a(APK_M4A, "apk")
 
 
 def stuff_into_tab(sid, tab, text):
@@ -235,9 +280,26 @@ class H(http.server.BaseHTTPRequestHandler):
             return self._json({"ok": True})
         if u.path == "/record/stop":
             sid, tab = q.get("sid",""), q.get("tab","")
-            text = record_stop_and_transcribe()
-            stuffed = stuff_into_tab(sid, tab, text) if text else False
-            return self._json({"text": text, "stuffed": stuffed})
+            info = record_stop_and_transcribe()
+            stuffed = stuff_into_tab(sid, tab, info["text"]) if info["text"] else False
+            return self._json({
+                "text": info["text"],
+                "stuffed": stuffed,
+                "bytes": info["bytes"],
+                "max_db": info["max_db"],
+            })
+        if u.path == "/transcribe":
+            sid, tab = q.get("sid",""), q.get("tab","")
+            n = int(self.headers.get("Content-Length") or 0)
+            body = self.rfile.read(n) if n > 0 else b""
+            info = transcribe_apk_upload(body)
+            stuffed = stuff_into_tab(sid, tab, info["text"]) if info["text"] else False
+            return self._json({
+                "text": info["text"],
+                "stuffed": stuffed,
+                "bytes": info["bytes"],
+                "max_db": info["max_db"],
+            })
         self.send_response(404); self._cors(); self.end_headers()
 
     def log_message(self, *a, **kw):
@@ -246,4 +308,6 @@ class H(http.server.BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     print(f"bridge listening on 127.0.0.1:{PORT}")
-    http.server.HTTPServer(("127.0.0.1", PORT), H).serve_forever()
+    # Threaded: whisper runs ~2-3s per /transcribe; single-threaded server
+    # would block /hardcopy polls and queue up next SPEAK fetches.
+    http.server.ThreadingHTTPServer(("127.0.0.1", PORT), H).serve_forever()

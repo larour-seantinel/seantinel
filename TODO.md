@@ -24,17 +24,22 @@ Shipped work moved to [DONE.md](DONE.md). Pull in on demand.
   attaches to existing tabs. Add: `NEW SESSION` button → spawn
   `screen -dmS claude-<slug> claude` in `~/Seantinel`. Row long-press →
   `DELETE SESSION` → `screen -S <sid> -X quit`.
-- **REPEAT button + TTS.** Pull last assistant turn from `hardcopy` (strip
-  trailing status bar + input prompt), feed to `termux-tts-speak` (upgrade
-  to Piper for nicer voice later).
+- **SUMMARY + REPEAT tiles under SPEAK.** Reference app has a 3-tile row
+  (SESSIONS done, SUMMARY + REPEAT TODO). REPEAT = pull last assistant
+  turn from `hardcopy`, feed to `termux-tts-speak` (Piper later for a
+  nicer voice). SUMMARY = ask Claude in the active session to summarize
+  the transcript.
 - **Scroll-position lock in transcript.** Current logic always auto-scrolls
   to bottom when the user was at the bottom. If the user scrolls up to read
   older output, don't jerk them back on the next poll (works today, but UX
   is jittery on long sessions — verify under load).
-- **Mic routing when DeX disconnects.** v0 regresses hard when DeX unplugs
-  (external-screen headset mic → built-in mic). Expected since primary use
-  is phone-standalone, but record the symptom + add a "mic source" hint to
-  the status strip.
+- **~~Mic routing when DeX disconnects~~. DONE 2026-11-05.** Root cause was
+  Android 10+ foreground-exclusive-mic (not DeX routing). Fixed by moving
+  capture into the APK itself (`MediaRecorder` behind
+  `@JavascriptInterface AndroidRecorder`). Bridge `/transcribe` endpoint
+  now accepts raw m4a bytes; old `/record/start|stop` kept for shell tests.
+  Also: threaded the bridge (`ThreadingHTTPServer`) so whisper doesn't
+  starve `/hardcopy` polls.
 - **Landing page redesign review (Guillermo brief, `web design.docx`).**
   Local preview lives at `index-v2.html` — centered "FIND YOUR CITY" card,
   right-column QR tile + "How to be involved", Guillermo's SEANTINEL wordmark
