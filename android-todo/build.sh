@@ -9,9 +9,9 @@ export PATH=$JAVA_HOME/bin:$PATH
 ANDROID_JAR=$HOME/android-33.jar
 BUILD=build
 KEYDIR=.keys          # outside $BUILD so key survives `rm -rf build/`
-APK_UNALIGNED=$BUILD/todo-unaligned.apk
-APK_ALIGNED=$BUILD/todo-aligned.apk
-APK_SIGNED=$BUILD/todo.apk
+APK_UNALIGNED=$BUILD/assistant-unaligned.apk
+APK_ALIGNED=$BUILD/assistant-aligned.apk
+APK_SIGNED=$BUILD/assistant.apk
 KEY_PK8=$KEYDIR/key.pk8
 CERT_DER=$KEYDIR/cert.der
 

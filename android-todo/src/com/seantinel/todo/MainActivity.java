@@ -15,6 +15,7 @@ public class MainActivity extends Activity {
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         // Default WebChromeClient enables native dialogs for JS alert/confirm/prompt.
         web.setWebChromeClient(new WebChromeClient());
         web.loadUrl("file:///android_asset/index.html");

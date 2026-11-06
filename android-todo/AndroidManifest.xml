@@ -5,7 +5,8 @@
     android:versionName="0.1">
     <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="33"/>
     <uses-permission android:name="android.permission.INTERNET"/>
-    <application android:label="Seantinel TO-DO" android:icon="@mipmap/ic_launcher">
+    <application android:label="Assistant" android:icon="@mipmap/ic_launcher"
+                 android:usesCleartextTraffic="true">
         <activity android:name=".MainActivity"
                   android:exported="true">
             <intent-filter>

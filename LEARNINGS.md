@@ -3,6 +3,74 @@
 Live notes. Shipped ISSM native-stack / APK / 3D rendering details live in
 [LEARNINGS-archive.md](LEARNINGS-archive.md) — pull in on demand.
 
+## Assistant app — CLAUDE tile v0 shipped (2026-11-05)
+
+- **Architecture.** WebView (TO-DO app, Android UID) can't see Termux processes
+  or TTYs. Bridge: `android-todo/bridge.py` runs inside Termux on
+  `127.0.0.1:8787`. WebView fetches JSON, bridge shells out to
+  `screen`/`termux-microphone-record`/`ffmpeg`/`whisper-cli`.
+- **Session discovery.** `/sessions` endpoint walks `~/.screen/` sockets +
+  `ps` to find bash shells parented to each `screen` master PID, then checks
+  each shell's children for `node claude`. Tab index = PID order (heuristic;
+  survives `^A A` renames since we always label `Tab1`/`Tab2`/...).
+- **Attach = poll hardcopy.** v0 is read-only. Session view polls
+  `/hardcopy?sid&tab` every 1.5 s, which runs
+  `screen -S <sid> -p <win> -X hardcopy <tmp>`. Interactive typing goes
+  through the SPEAK button (voice → `screen -X stuff`). No real TTY in the
+  WebView — rejected ttyd option because the read-only transcript matches
+  the reference-app UX and avoids per-session port management.
+- **Transcript blink.** Polling hardcopy while screen is mid-redraw
+  occasionally returns an empty file. JS fix: skip the `textContent` update
+  whenever `j.text.trim()` is empty — preserves the previous paint.
+- **Stuff + Enter.** `screen -X stuff "<text>"` then `sleep 0.15` then
+  `stuff "\r"` in a second call. Bundling text+CR into one `stuff` call
+  sometimes lands the CR before the TUI (Claude Code's ink input) finishes
+  consuming the pasted text, so the Enter gets swallowed.
+- **Android cleartext to localhost.** WebView fetching `http://127.0.0.1:8787`
+  from a `file://` origin needs **both** `android:usesCleartextTraffic="true"`
+  in the manifest `<application>` tag **and**
+  `webSettings.setMixedContentMode(MIXED_CONTENT_ALWAYS_ALLOW)` in Java.
+  Without either, fetch fails silently with a CORS/Net error.
+- **Permissions.** `RECORD_AUDIO` is **not** needed in our manifest. Recording
+  happens inside Termux:API's own UID, which already has the mic grant.
+- **termux-microphone-record format.** No WAV output — only aac/amr/opus
+  (`-e <enc>`). Pipeline: record `.m4a` → `ffmpeg -ar 16000 -ac 1` → WAV →
+  whisper-cli. ffmpeg is a `pkg install ffmpeg` away.
+- **Mic arm latency.** `termux-microphone-record -f ... -l 0` returns
+  immediately but the mic takes ~300 ms–1 s to actually start capturing.
+  Fix: poll `termux-microphone-record -i` for `"isRecording": true` (up to
+  2 s) before returning from `/record/start`. Prevents the "user taps STOP
+  immediately and gets 1.1 s of silence" bug.
+- **Whisper silence sentinel.** When input is silent/noisy, whisper returns
+  `[BLANK_AUDIO]` or `(music)`-style tokens as its only output. Filter with
+  `re.fullmatch(r"[\[\(][^\]\)]+[\]\)]", text)` → treat as empty, do not
+  stuff into Claude.
+- **Font bump via `body { zoom: 1.3 }`.** Simpler than rewriting every `px`
+  to `rem`. `zoom` scales both font-size and layout proportionally; works in
+  Android WebView; one-line revert if needed.
+- **APK naming.** Build output renamed `todo.apk` → `assistant.apk`; app
+  label `Seantinel TO-DO` → `Assistant` (manifest). Package name
+  (`com.seantinel.todo`) kept, so the install still upgrades in place.
+- **Phase-1 transcriber: whisper.cpp base multilingual.** Generic model,
+  142 MB (`~/whisper.cpp/models/ggml-base.bin`), ~1–3 s on-device for short
+  utterances. Noticeably better than Android STT for French-accented English
+  but not yet Eric-voice-tuned. Swap point: `transcribe()` in `bridge.py`.
+- **Mic quality drops when DeX unplugs.** External display headset mic vs
+  phone's built-in mic are very different signals; whisper regresses on the
+  phone-standalone path. Known env issue — not a code bug. Vibe-coding
+  target is phone-standalone anyway (Eric's intent).
+
+## Bridge lifecycle — survives Termux restart? (2026-11-05)
+
+- **Not yet.** `screen -dmS bridge bash -c 'python3 bridge.py'` wrappers
+  kept terminating the screen session while leaving the python server
+  orphaned (PPID=1). Current working pattern:
+  `(python3 ~/Seantinel/android-todo/bridge.py >~/tmp/bridge.log 2>&1 &)`
+  from a subshell — bridge runs until Termux is killed.
+- Autostart via Termux:Boot deferred — a TODO for v0.1.
+- `/tmp` is not writable on Termux; use `~/tmp/` for log + hardcopy scratch
+  (`bridge.py` already falls back automatically).
+
 ## Voice-assistant reference app (2026-11-05)
 
 Eric showed 5 phone photos (`~/storage/shared/DCIM/Camera/20261105_2214*.jpg`)

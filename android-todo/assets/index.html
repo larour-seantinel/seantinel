@@ -49,6 +49,36 @@
   </footer>
 </section>
 
+<!-- CLAUDE sessions list -->
+<section id="claude" class="screen hidden">
+  <header class="topbar">
+    <button class="pill x" data-nav="home">&times;</button>
+    <span id="claude-count" class="count">—</span>
+    <button class="pill gear" id="claude-refresh">&#8635;</button>
+  </header>
+
+  <h1 class="section-title">SESSIONS</h1>
+
+  <div id="claude-list" class="list"></div>
+  <div class="status" id="claude-status"></div>
+</section>
+
+<!-- CLAUDE session transcript -->
+<section id="claude-session" class="screen hidden">
+  <header class="topbar">
+    <button class="pill x" data-nav="claude">&larr;</button>
+    <span id="claude-session-label" class="count">—</span>
+    <button class="pill gear" id="claude-session-refresh">&#8635;</button>
+  </header>
+
+  <pre id="claude-transcript" class="transcript">loading…</pre>
+
+  <div class="speak-bar">
+    <div id="speak-status" class="speak-status">idle</div>
+    <button id="speak-btn" class="speak-btn">&#127908; SPEAK</button>
+  </div>
+</section>
+
 <!-- ADD modal -->
 <div id="add-modal" class="modal hidden">
   <div class="modal-card">

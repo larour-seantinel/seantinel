@@ -4,27 +4,37 @@ Shipped work moved to [DONE.md](DONE.md). Pull in on demand.
 
 ## Next Up — Seantinel core
 
-- **CLAUDE tile = voice-chat with Claude Code in a screen session.**
-  Spec captured in LEARNINGS "Voice-assistant reference app". Implementation
-  outline, per Eric's photo mockup:
-  1. Click CLAUDE tile → **SESSIONS screen**. Lists `screen -ls` output as
-     rows; `NEW SESSION` CTA creates a fresh `screen -dmS <name> claude`.
-  2. Tap a session → **session view**. Live `screen -S <name> -X hardcopy`
-     tail shown in a scrollable transcript. Bottom bar: SPEAK / REPEAT /
-     SUMMARY / SESSIONS / DELETE SESSION.
-  3. SPEAK → `termux-microphone-record -f ~/rec.wav` → whisper.cpp
-     (generic model for v0; fine-tune on Eric's voice later) →
-     `screen -S <name> -X stuff "<text>\n"`. UI: orange SPEAK becomes
-     pink DONE + dark CANCEL + "listening… Ns" timer.
-  4. REPEAT → pull last assistant turn from the transcript → `termux-tts-speak`.
-  5. Settings pills: VOLUME / VOICE / READING SPEED. Skip LLM-backend row
-     (we always talk to Claude).
-  Needs: Termux:API already installed; whisper.cpp needs building for ARM64;
-  the `screen -X stuff` bridge needs Termux:Boot or a running Termux instance.
-- **Fine-tune whisper on Eric's voice.** Record ~30–60 min of dictated
-  prompts + ground-truth transcripts; LoRA on whisper-small, train on an
-  Oracle ARM free-tier VM (no GPU needed for a small LoRA). Only after v0
-  of the SPEAK button works with generic whisper.
+- **Assistant app v0 shipped this session.** CLAUDE tile lists claude-running
+  screen tabs, opens read-only polling transcript, SPEAK button records via
+  `termux-microphone-record` → ffmpeg → whisper.cpp (base multilingual, 142 MB)
+  → `screen -X stuff` with a trailing CR. Both blink + enter bugs fixed.
+  Follow-ups listed below.
+
+- **Fine-tune whisper on Eric's voice (Phase 2).** v0 uses generic
+  `ggml-base.bin` multilingual; handles French-accented English OK but not
+  great. Record ~30–60 min of dictated prompts + ground-truth transcripts,
+  LoRA on whisper-small, train on Oracle ARM free-tier VM (no GPU needed).
+  Swap point is `transcribe()` in `android-todo/bridge.py`.
+- **Bridge autostart.** Today the bridge must be hand-started in Termux
+  (`python3 ~/Seantinel/android-todo/bridge.py &`). Wrap in a Termux:Boot
+  script so it survives reboot / Termux restart. Also add a watchdog
+  endpoint `/ping` so the WebView can tell "bridge is dead" from "no claude
+  sessions".
+- **New-session / delete-session actions in the Assistant app.** v0 only
+  attaches to existing tabs. Add: `NEW SESSION` button → spawn
+  `screen -dmS claude-<slug> claude` in `~/Seantinel`. Row long-press →
+  `DELETE SESSION` → `screen -S <sid> -X quit`.
+- **REPEAT button + TTS.** Pull last assistant turn from `hardcopy` (strip
+  trailing status bar + input prompt), feed to `termux-tts-speak` (upgrade
+  to Piper for nicer voice later).
+- **Scroll-position lock in transcript.** Current logic always auto-scrolls
+  to bottom when the user was at the bottom. If the user scrolls up to read
+  older output, don't jerk them back on the next poll (works today, but UX
+  is jittery on long sessions — verify under load).
+- **Mic routing when DeX disconnects.** v0 regresses hard when DeX unplugs
+  (external-screen headset mic → built-in mic). Expected since primary use
+  is phone-standalone, but record the symptom + add a "mic source" hint to
+  the status strip.
 - **Landing page redesign review (Guillermo brief, `web design.docx`).**
   Local preview lives at `index-v2.html` — centered "FIND YOUR CITY" card,
   right-column QR tile + "How to be involved", Guillermo's SEANTINEL wordmark

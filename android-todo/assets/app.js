@@ -30,9 +30,14 @@ const show = id => {
 document.querySelectorAll('[data-tile]').forEach(b => b.addEventListener('click', () => {
   const t = b.dataset.tile;
   if (t === 'todo') { show('todo'); loadTodo(); }
+  else if (t === 'claude') { show('claude'); loadClaudeSessions(); }
   else setStatus(t.toUpperCase() + ': not wired yet.');
 }));
 document.getElementById('back').addEventListener('click', () => show('home'));
+document.querySelectorAll('[data-nav]').forEach(b => b.addEventListener('click', () => {
+  stopTranscriptPoll();
+  show(b.dataset.nav);
+}));
 
 // ---------- github ----------
 function ghHeaders() {
@@ -321,5 +326,126 @@ async function loadTodo() {
     setStatus('load failed: ' + e.message);
   }
 }
+
+// ---------- claude tile ----------
+const BRIDGE = 'http://127.0.0.1:8787';
+let transcriptTimer = null;
+
+async function loadClaudeSessions() {
+  const list = document.getElementById('claude-list');
+  const status = document.getElementById('claude-status');
+  const count = document.getElementById('claude-count');
+  list.innerHTML = '';
+  status.textContent = 'scanning…';
+  try {
+    const r = await fetch(BRIDGE + '/sessions', { cache: 'no-store' });
+    const rows = await r.json();
+    count.textContent = rows.length + (rows.length === 1 ? ' tab' : ' tabs');
+    if (!rows.length) {
+      status.textContent = 'no claude sessions. start one with `screen -S <name> claude`.';
+      return;
+    }
+    status.textContent = '';
+    for (const row of rows) {
+      const card = document.createElement('button');
+      card.className = 'session-card';
+      card.innerHTML =
+        '<div class="session-title">' + row.label + '</div>' +
+        '<div class="session-sub">' + row.cwd + '  ·  pid ' + row.pid + '  ·  ' + row.age + '</div>';
+      card.addEventListener('click', () => openClaudeSession(row));
+      list.appendChild(card);
+    }
+  } catch (e) {
+    status.textContent = 'bridge offline (' + e.message + '). start with: python3 ~/Seantinel/android-todo/bridge.py';
+  }
+}
+
+function openClaudeSession(row) {
+  document.getElementById('claude-session-label').textContent = row.label;
+  document.getElementById('claude-transcript').textContent = 'loading…';
+  show('claude-session');
+  pollTranscript(row.sid, row.tab);
+}
+
+function pollTranscript(sid, tab) {
+  stopTranscriptPoll();
+  const tick = async () => {
+    try {
+      const r = await fetch(BRIDGE + '/hardcopy?sid=' + encodeURIComponent(sid) + '&tab=' + encodeURIComponent(tab), { cache: 'no-store' });
+      const j = await r.json();
+      const el = document.getElementById('claude-transcript');
+      const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
+      if (j.text && j.text.trim()) {
+        el.textContent = j.text;
+        if (atBottom) el.scrollTop = el.scrollHeight;
+      }
+    } catch (e) {
+      document.getElementById('claude-transcript').textContent = 'bridge offline: ' + e.message;
+    }
+  };
+  tick();
+  transcriptTimer = setInterval(tick, 1500);
+}
+function stopTranscriptPoll() {
+  if (transcriptTimer) { clearInterval(transcriptTimer); transcriptTimer = null; }
+}
+
+document.getElementById('claude-refresh').addEventListener('click', loadClaudeSessions);
+document.getElementById('claude-session-refresh').addEventListener('click', () => {
+  const label = document.getElementById('claude-session-label').textContent;
+  const [sid, tab] = label.split(' / ');
+  if (sid && tab) pollTranscript(sid, tab);
+});
+
+let speakRecording = false;
+let speakStart = 0;
+let speakTimer = null;
+
+document.getElementById('speak-btn').addEventListener('click', async () => {
+  const label = document.getElementById('claude-session-label').textContent;
+  const [sid, tab] = label.split(' / ');
+  if (!sid || !tab) return;
+  const btn = document.getElementById('speak-btn');
+  const st = document.getElementById('speak-status');
+
+  if (!speakRecording) {
+    btn.disabled = true;
+    st.textContent = 'opening mic…';
+    try {
+      await fetch(BRIDGE + '/record/start', { method: 'POST' });
+      speakRecording = true;
+      speakStart = Date.now();
+      btn.classList.add('listening');
+      btn.innerHTML = '&#9632; STOP';
+      speakTimer = setInterval(() => {
+        const s = Math.floor((Date.now() - speakStart) / 1000);
+        st.textContent = 'listening… ' + s + 's';
+      }, 500);
+      st.textContent = 'listening… 0s';
+    } catch (e) {
+      st.textContent = 'bridge offline: ' + e.message;
+    } finally {
+      btn.disabled = false;
+    }
+    return;
+  }
+
+  // stop + transcribe
+  btn.disabled = true;
+  clearInterval(speakTimer); speakTimer = null;
+  st.textContent = 'transcribing…';
+  try {
+    const r = await fetch(BRIDGE + '/record/stop?sid=' + encodeURIComponent(sid) + '&tab=' + encodeURIComponent(tab), { method: 'POST' });
+    const j = await r.json();
+    st.textContent = j.text ? (j.stuffed ? 'sent: ' : 'heard: ') + '"' + j.text + '"' : 'empty transcript';
+  } catch (e) {
+    st.textContent = 'bridge error: ' + e.message;
+  } finally {
+    speakRecording = false;
+    btn.disabled = false;
+    btn.classList.remove('listening');
+    btn.innerHTML = '&#127908; SPEAK';
+  }
+});
 
 })();
