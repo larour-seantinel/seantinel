@@ -56,6 +56,12 @@ fi
 echo "[7/7] apksigner: sign APK"
 apksigner sign --key $KEY_PK8 --cert $CERT_DER --out $APK_SIGNED $APK_ALIGNED
 
+DOWNLOADS=$HOME/storage/downloads
+if [ -d "$DOWNLOADS" ]; then
+    cp "$APK_SIGNED" "$DOWNLOADS/assistant.apk"
+    echo "Copied to $DOWNLOADS/assistant.apk"
+fi
+
 echo
 echo "APK: $(pwd)/$APK_SIGNED"
 ls -la $APK_SIGNED

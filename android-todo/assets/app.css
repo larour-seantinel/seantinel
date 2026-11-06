@@ -107,3 +107,24 @@ body { min-height: 100vh; zoom: 1.3; }
   color: #fff; font-weight: 800; letter-spacing: 1px; font-size: 15px;
   padding: 18px 0; }
 .back-tile:active { filter: brightness(1.15); }
+
+/* claude session — maximize transcript real estate (screen-like) */
+#claude-session.screen {
+  zoom: 1; padding: 0;
+  display: flex; flex-direction: column;
+  height: 100vh; width: 100vw;
+}
+#claude-session .topbar { display: none; }
+#claude-session .transcript {
+  flex: 1 1 auto; height: auto; width: 100%;
+  margin: 0; border-radius: 0;
+  padding: 6px 8px; font-size: 12px;
+}
+#claude-session .speak-bar {
+  padding: 4px 6px 6px; gap: 4px;
+  background: #0d0f1f;
+}
+#claude-session .speak-status { padding: 4px 6px; font-size: 11px; min-height: 14px; }
+#claude-session .speak-btn { padding: 14px 0; font-size: 18px; border-radius: 10px; }
+#claude-session .speak-extra { padding: 4px 0 2px; gap: 6px; }
+#claude-session .back-tile { padding: 10px 0; font-size: 13px; border-radius: 8px; }
