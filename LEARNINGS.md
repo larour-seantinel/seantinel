@@ -3,6 +3,21 @@
 Live notes. Shipped ISSM native-stack / APK / 3D rendering details live in
 [LEARNINGS-archive.md](LEARNINGS-archive.md) — pull in on demand.
 
+## CMD menu replaces PAUSE in Assistant APK (2026-11-06)
+
+- Single PAUSE button was wasted real estate — ESC was the only thing it
+  did. Replaced with ⌘ CMD opening a modal with four big stacked buttons:
+  ESC (orange, fires `/escape`), `/start`, `/close`, `/clear` (green, fire
+  `/stuff` which types the text and hits Enter). Cancel at the bottom.
+- `/stuff` already strips control chars and appends CR — safe for any
+  slash-command text without extra escaping.
+- Modal buttons sized 28 px padding, 26 px font — large enough to tap at a
+  glance while driving. Session is driving-first; new taps should default
+  to ≥56 px tall / ≥20 px font. Follow-up pass also bumped CMD + SPEAK
+  footer buttons to 34 px padding / 24–26 px bold, and recolored the back
+  arrow + session label to bright green (24–32 px) so the header reads at
+  a glance.
+
 ## `screen -X width` is a no-op when a display is attached (2026-11-06)
 
 - **Symptom.** Opening an existing screen session (born outside the APK, so

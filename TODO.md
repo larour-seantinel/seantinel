@@ -4,6 +4,10 @@ Shipped work moved to [DONE.md](DONE.md). Pull in on demand.
 
 ## Next Up — Seantinel core
 
+- **CMD menu + driving-friendly footer shipped 2026-11-06.** PAUSE button
+  replaced with ⌘ CMD → modal with ESC, `/start`, `/close`, `/clear`. CMD
+  and SPEAK bumped to 34 px padding / 24–26 px bold. Back arrow + session
+  label recolored bright green (24–32 px) for at-a-glance header reads.
 - **Assistant app voice-chat loop shipped 2026-11-06.** Full SPEAK → whisper
   → Claude → Android TTS → next SPEAK cycle. Toggle 🔇/🔊 bell in the session
   topbar: on → bridge stuffs a one-shot kickoff instructing Claude to answer

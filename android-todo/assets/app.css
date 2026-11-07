@@ -128,21 +128,24 @@ body.in-claude-session { background: #000; }
   font-family: "Menlo", "Courier New", monospace;
 }
 #claude-session .topbar {
-  margin: 0; padding: 10px 12px; flex: 0 0 auto; gap: 12px;
+  margin: 0; padding: 14px 12px; flex: 0 0 auto; gap: 12px;
   background: #000;
   border-bottom: 1px solid #222;
 }
 #claude-session .topbar .count {
-  color: #bbb; font-size: 18px; font-weight: 400;
+  color: #8ae234; font-size: 24px; font-weight: 700;
   font-family: "Menlo", "Courier New", monospace;
-  text-align: left;
+  text-align: left; letter-spacing: 1px;
 }
 #claude-session .pill {
-  background: transparent; color: #fff; padding: 8px 12px;
+  background: transparent; color: #fff; padding: 10px 14px;
   border-radius: 0; font-size: 22px; font-weight: 400;
   font-family: "Menlo", "Courier New", monospace;
 }
-#claude-session .pill.x    { background: transparent; color: #ccc; }
+#claude-session .pill.x    {
+  background: transparent; color: #8ae234;
+  font-size: 32px; font-weight: 700; padding: 6px 16px;
+}
 #claude-session .pill.gear { background: transparent; color: #ccc; }
 #claude-session .transcript {
   flex: 1 1 auto; min-height: 0; width: 100%;
@@ -170,23 +173,40 @@ body.in-claude-session { background: #000; }
 }
 #claude-session .speak-btn {
   flex: 2;
-  padding: 22px 0; font-size: 20px; border-radius: 0;
+  padding: 34px 0; font-size: 26px; border-radius: 0;
   background: #000; color: #8ae234;
   border: 0; border-left: 1px solid #222;
   font-family: "Menlo", "Courier New", monospace;
-  font-weight: 400; letter-spacing: 1px;
+  font-weight: 700; letter-spacing: 2px;
 }
 #claude-session .speak-btn.listening { background: #000; color: #e45a8e; }
 #claude-session .speak-btn.transcribing { background: #000; color: #f0a040; }
-#claude-session .pause-btn {
+#claude-session .cmd-btn {
   flex: 1;
-  padding: 16px 0; font-size: 18px; border-radius: 0;
+  padding: 34px 0; font-size: 24px; border-radius: 0;
   background: #000; color: #f0a040;
   border: 0;
   font-family: "Menlo", "Courier New", monospace;
-  font-weight: 400; letter-spacing: 1px;
+  font-weight: 700; letter-spacing: 2px;
 }
-#claude-session .pause-btn:active { background: #1a0e00; }
+#claude-session .cmd-btn:active { background: #1a0e00; }
+
+/* CMD modal — big, driving-friendly buttons */
+#cmd-modal .cmd-card {
+  background: #000; border: 1px solid #222; max-width: 480px;
+  gap: 12px; padding: 16px;
+}
+.cmd-opt {
+  width: 100%; padding: 28px 0;
+  font-size: 26px; font-weight: 700; letter-spacing: 2px;
+  font-family: "Menlo", "Courier New", monospace;
+  background: #000; border: 1px solid #333; border-radius: 12px;
+  color: #ccc;
+}
+.cmd-opt:active { background: #1a0e00; }
+.cmd-esc    { color: #f0a040; }
+.cmd-slash  { color: #8ae234; }
+.cmd-cancel { color: #888; font-size: 20px; padding: 20px 0; }
 #claude-session #claude-voice-toggle { color: #555; }
 #claude-session #claude-voice-toggle.on { color: #8ae234; }
 #claude-session .speak-extra { padding: 0; gap: 0; }

@@ -565,19 +565,44 @@ function stopTranscriptPoll() {
   if (transcriptTimer) { clearInterval(transcriptTimer); transcriptTimer = null; }
 }
 
-document.getElementById('pause-btn').addEventListener('click', async () => {
+function currentSidTab() {
   const label = document.getElementById('claude-session-label').textContent;
   const [sid, tab] = label.split(' / ');
-  if (!sid || !tab) return;
-  const st = document.getElementById('speak-status');
-  try {
-    await fetch(BRIDGE + '/escape?sid=' + encodeURIComponent(sid) + '&tab=' + encodeURIComponent(tab),
-                { method: 'POST' });
-    st.textContent = 'ESC sent';
-    setTimeout(() => { if (st.textContent === 'ESC sent') st.textContent = 'idle'; }, 1200);
-  } catch (e) {
-    st.textContent = 'pause failed: ' + e.message;
-  }
+  return (sid && tab) ? [sid, tab] : [null, null];
+}
+function showCmdModal(show) {
+  document.getElementById('cmd-modal').classList.toggle('hidden', !show);
+}
+document.getElementById('cmd-btn').addEventListener('click', () => showCmdModal(true));
+document.getElementById('cmd-cancel').addEventListener('click', () => showCmdModal(false));
+document.getElementById('cmd-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'cmd-modal') showCmdModal(false);
+});
+document.querySelectorAll('#cmd-modal .cmd-opt[data-cmd]').forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    const cmd = btn.dataset.cmd;
+    const [sid, tab] = currentSidTab();
+    showCmdModal(false);
+    if (!sid || !tab) return;
+    const st = document.getElementById('speak-status');
+    try {
+      if (cmd === 'esc') {
+        await fetch(BRIDGE + '/escape?sid=' + encodeURIComponent(sid) +
+                    '&tab=' + encodeURIComponent(tab), { method: 'POST' });
+        st.textContent = 'ESC sent';
+      } else {
+        await fetch(BRIDGE + '/stuff?sid=' + encodeURIComponent(sid) +
+                    '&tab=' + encodeURIComponent(tab),
+                    { method: 'POST', body: cmd });
+        st.textContent = cmd + ' sent';
+      }
+      setTimeout(() => {
+        if (st.textContent.endsWith(' sent')) st.textContent = 'idle';
+      }, 1500);
+    } catch (e) {
+      st.textContent = 'cmd failed: ' + e.message;
+    }
+  });
 });
 
 document.getElementById('claude-refresh').addEventListener('click', loadClaudeSessions);

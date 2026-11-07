@@ -77,11 +77,22 @@
   <div class="speak-bar">
     <div id="speak-status" class="speak-status">idle</div>
     <div class="speak-row">
-      <button id="pause-btn" class="pause-btn" title="Send ESC to Claude">&#9208; PAUSE</button>
+      <button id="cmd-btn" class="cmd-btn" title="Commands">&#8984; CMD</button>
       <button id="speak-btn" class="speak-btn">&#127908; SPEAK</button>
     </div>
   </div>
 </section>
+
+<!-- CMD modal -->
+<div id="cmd-modal" class="modal hidden">
+  <div class="modal-card cmd-card">
+    <button class="cmd-opt cmd-esc"   data-cmd="esc">&#9208; ESC</button>
+    <button class="cmd-opt cmd-slash" data-cmd="/start">/start</button>
+    <button class="cmd-opt cmd-slash" data-cmd="/close">/close</button>
+    <button class="cmd-opt cmd-slash" data-cmd="/clear">/clear</button>
+    <button id="cmd-cancel" class="cmd-opt cmd-cancel">Cancel</button>
+  </div>
+</div>
 
 <!-- ADD modal -->
 <div id="add-modal" class="modal hidden">
