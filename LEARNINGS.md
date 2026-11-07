@@ -3,6 +3,66 @@
 Live notes. Shipped ISSM native-stack / APK / 3D rendering details live in
 [LEARNINGS-archive.md](LEARNINGS-archive.md) — pull in on demand.
 
+## `screen -X width` is a no-op when a display is attached (2026-11-06)
+
+- **Symptom.** Opening an existing screen session (born outside the APK, so
+  TTY width = 46 cols from Termux) in the APK's transcript view still needed
+  horizontal scroll, even after adding a `/resize` call that ran
+  `screen -S sid -p win -X width -w 38`. Verified empirically: `screen -Q info`
+  reported window size unchanged post-command.
+- **Cause.** `screen` enforces the attached display's size on the window.
+  Eric had a Termux terminal attached to the "work" screen; that display was
+  46 cols, so screen pinned the window back to 46 on every redraw.
+- **Fix.** Bypass screen and go straight to the slave PTY:
+  `stty -F /dev/pts/<n> cols 38 rows 30` on claude's own tty. Kernel sends
+  SIGWINCH to claude's foreground process group → TUI redraws narrow.
+  Bridge `/resize` endpoint reads `/proc/<claude_pid>/fd/0` to find the PTY.
+- **Caveat.** If the Termux display later triggers a screen redraw, the size
+  may snap back to 46. Transient but good enough — a second `/resize` tap
+  (close + reopen in the APK) restores 38.
+
+## Claude Code TUI chrome needs careful stripping for TTS (2026-11-06)
+
+- The `extract_last_assistant_turn()` must stop at: `───` box borders,
+  `❯` input prompt, `⏵` bypass-permissions hint, `Opus … | ctx:` status
+  footer, and the `✻ Brewed for Ns` / `✦ Thought for Ns` thinking-time
+  annotation Claude Code leaves below each response. First pass only
+  stopped on `╭` corners — this TUI uses plain long `─` runs, no corners.
+- Assistant marker in this TUI is `●` (U+25CF), not `⏺` (U+23FA). Accept
+  both. Skip lines where the marker is followed by a `Name(` tool-call
+  pattern — grab the prior prose block instead.
+- TTS was reading the entire footer including "Opus 4.7 | ctx:45% | …"
+  until these break conditions were added.
+
+## Android TTS can't be stopped mid-utterance from shell (2026-11-06)
+
+- `termux-tts-speak` is a thin client over Android's TTS engine.
+  `pkill -f termux-tts-speak` kills the client but the engine keeps
+  playing the current utterance to completion. No shell command exposes
+  `TextToSpeech.stop()`.
+- Workaround in the voice-chat UX: tapping SPEAK during playback kills
+  the client (preventing queued utterances) and starts recording. Current
+  word still plays out. Acceptable for ≤50-word answers (~15s max).
+
+## Voice-chat turn-done detection: stability beats pattern-matching (2026-11-06)
+
+- Tried detecting "Claude is idle" via the input-box corner char (`╰`),
+  "esc to interrupt" absence, etc. Too brittle — TUI varies and some
+  builds don't show "esc to interrupt" during thinking.
+- Working heuristic: hardcopy identical for 3 consecutive 1.5s polls
+  (~4.5s steady), gated by a 3s floor since the transcribe POST returned
+  (claude boot lag), plus a `looksBusy()` check for "esc to interrupt"
+  and the `… (Xs` spinner pattern. Resets `stableCount` on any change.
+
+## One-shot kickoff > per-turn suffix (2026-11-06)
+
+- First design appended `(answer in ≤50 spoken words)` to every stuffed
+  prompt. Works but clutters the transcript every turn.
+- Eric's preference: toggle VOICE on → bridge stuffs a single kickoff
+  message instructing Claude to answer in ≤50 words for the rest of the
+  session, then raw prompts thereafter. Claude holds the instruction via
+  normal context. Cleaner transcript; one line of setup per session.
+
 ## Can't widen font without narrowing TTY first (2026-11-06)
 
 - **Symptom.** Transcript view: bumping font-size to fit a "30% bigger" ask

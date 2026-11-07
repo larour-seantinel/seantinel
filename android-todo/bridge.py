@@ -250,6 +250,80 @@ def transcribe_apk_upload(body_bytes):
     return _transcribe_m4a(APK_M4A, "apk")
 
 
+# ---- voice-chat: speak Claude's last turn via Android TTS -----------------
+
+ASSISTANT_MARKERS = ("⏺", "●")  # Claude Code TUI assistant-turn bullets
+TOOL_CALL_RE = re.compile(r"^[A-Z][A-Za-z0-9_]*\(")
+
+
+def extract_last_assistant_turn(txt):
+    """Return the last non-tool-call assistant block, flattened to one line.
+    Returns '' if nothing usable is in frame."""
+    lines = txt.split("\n")
+    start = None
+    for i in range(len(lines) - 1, -1, -1):
+        s = lines[i].lstrip()
+        for m in ASSISTANT_MARKERS:
+            if s.startswith(m):
+                content = s[len(m):].lstrip()
+                if content and not TOOL_CALL_RE.match(content):
+                    start = i
+                break
+        if start is not None:
+            break
+    if start is None:
+        return ""
+    body = []
+    for ln in lines[start:]:
+        # Stop at the input-box border (any run of 3+ box-drawing dashes),
+        # at the input prompt line (❯), at the Claude Code status footer
+        # ("Opus … | ctx:"), at the "bypass permissions" hint, or at the
+        # next tool-call bullet.
+        s = ln.lstrip()
+        # Stop at TUI chrome: box borders, input prompt, status footer,
+        # bypass-permissions hint, or the "✻ Brewed for Ns" / "✦ Thought
+        # for Ns" annotation Claude Code leaves under each turn.
+        if "───" in ln or s.startswith("❯") or s.startswith("⏵") or \
+           s.startswith(("✻", "✶", "✦", "✺", "✷", "·")) or \
+           ("Opus" in ln and "ctx:" in ln) or ("ctx:" in ln and "%" in ln):
+            break
+        tool_hit = False
+        for m in ASSISTANT_MARKERS:
+            if s.startswith(m):
+                rest = s[len(m):].lstrip()
+                if TOOL_CALL_RE.match(rest):
+                    tool_hit = True
+                break
+        if tool_hit and body:
+            break
+        body.append(ln)
+    if not body:
+        return ""
+    first = body[0].lstrip()
+    for m in ASSISTANT_MARKERS:
+        if first.startswith(m):
+            first = first[len(m):].lstrip()
+            break
+    body[0] = first
+    chunks = [l.strip() for l in body if l.strip()]
+    return " ".join(chunks)
+
+
+def speak_last_turn(sid, tab):
+    text = extract_last_assistant_turn(hardcopy(sid, tab))
+    if not text:
+        return {"ok": False, "error": "no assistant turn in view"}
+    # Kill any prior speaker before starting a new one so taps don't stack.
+    subprocess.run(["pkill", "-f", "termux-tts-speak"],
+                   capture_output=True, timeout=2)
+    subprocess.Popen(
+        ["termux-tts-speak", "-s", "MUSIC", text],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return {"ok": True, "text": text}
+
+
 def new_session():
     """Spawn `screen -dmS sessionN bash`, then stuff `claude\\r` into tab 0.
     Names are session1, session2, ... — first free index wins."""
@@ -389,6 +463,49 @@ class H(http.server.BaseHTTPRequestHandler):
                 "bytes": info["bytes"],
                 "max_db": info["max_db"],
             })
+        if u.path == "/stuff":
+            sid, tab = q.get("sid",""), q.get("tab","")
+            n = int(self.headers.get("Content-Length") or 0)
+            body = self.rfile.read(n).decode("utf-8", "ignore") if n > 0 else ""
+            ok = stuff_into_tab(sid, tab, body) if body else False
+            return self._json({"ok": ok})
+        if u.path == "/speak":
+            sid, tab = q.get("sid",""), q.get("tab","")
+            return self._json(speak_last_turn(sid, tab))
+        if u.path == "/speak/stop":
+            subprocess.run(["pkill", "-f", "termux-tts-speak"],
+                           capture_output=True, timeout=2)
+            return self._json({"ok": True})
+        if u.path == "/resize":
+            # Attached Termux terminals pin screen's display size, so
+            # `screen -X width` is a no-op. Resize claude's slave PTY
+            # directly with stty — kernel sends SIGWINCH to claude and
+            # it redraws at the new width.
+            sid, tab = q.get("sid",""), q.get("tab","")
+            cols = q.get("cols", "38"); rows = q.get("rows", "30")
+            m = re.match(r"Tab(\d+)$", tab)
+            if not sid or not m:
+                return self._json({"ok": False, "error": "bad sid/tab"}, 400)
+            win = int(m.group(1)) - 1
+            # Find claude pid for this (sid, win).
+            spid = next((p for p, name, _ in _screen_sockets() if name == sid), None)
+            if spid is None:
+                return self._json({"ok": False, "error": "unknown sid"}, 404)
+            claude_pid = None
+            for w, sh in _all_shells_by_session().get(spid, []):
+                if w == win:
+                    claude_pid = _claude_pid_for_shell(sh)
+                    break
+            if claude_pid is None:
+                return self._json({"ok": False, "error": "claude not running"}, 404)
+            try:
+                tty = os.readlink(f"/proc/{claude_pid}/fd/0")
+            except OSError as e:
+                return self._json({"ok": False, "error": f"readlink: {e}"}, 500)
+            r = subprocess.run(["stty", "-F", tty, "cols", cols, "rows", rows],
+                               capture_output=True, text=True, timeout=3)
+            return self._json({"ok": r.returncode == 0, "tty": tty,
+                               "err": r.stderr.strip() or None})
         self.send_response(404); self._cors(); self.end_headers()
 
     def log_message(self, *a, **kw):

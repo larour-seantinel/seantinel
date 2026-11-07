@@ -357,6 +357,63 @@ async function loadTodo() {
 const BRIDGE = 'http://127.0.0.1:8787';
 let transcriptTimer = null;
 
+// Voice-chat mode: when on, SPEAK auto-adds "≤50 words" to the prompt, and we
+// watch for the turn to settle, then call /speak to TTS the answer.
+// Done-detection = 3 consecutive identical hardcopy polls (~4.5s stable) and
+// no "esc to interrupt" status banner. Stability-only works because the TUI
+// spinner always redraws the status line every ~500ms while busy.
+let voiceMode = localStorage.getItem('voiceMode') === '1';
+let waitingForReply = false;
+let replyLastText = '';
+let replyStableCount = 0;
+let replyStartedAt = 0;
+
+function updateVoiceToggle() {
+  const b = document.getElementById('claude-voice-toggle');
+  if (!b) return;
+  b.classList.toggle('on', voiceMode);
+  b.innerHTML = voiceMode ? '&#128266;' : '&#128263;'; // 🔊 vs 🔇
+  b.title = voiceMode ? 'Voice replies ON' : 'Voice replies OFF';
+}
+
+const VOICE_KICKOFF =
+  "Voice chat is now active. For the rest of this session, " +
+  "answer every reply in 50 spoken words or fewer. " +
+  "Plain prose only, no markdown, no bullets, no code blocks. " +
+  "Reply with 'ok' to confirm.";
+
+async function sendKickoff(sid, tab) {
+  try {
+    await fetch(BRIDGE + '/stuff?sid=' + encodeURIComponent(sid) +
+                '&tab=' + encodeURIComponent(tab), {
+      method: 'POST', body: VOICE_KICKOFF,
+    });
+  } catch {}
+}
+
+function looksBusy(text) {
+  // Spinner line: "✻ Schlepping… (5m · esc to interrupt)" etc.
+  // "esc to interrupt" is a reliable busy marker when tool exec is running.
+  // The ellipsis-with-timer is also a strong signal.
+  if (text.includes('esc to interrupt')) return true;
+  if (/…\s*\(\d+[smh]/.test(text)) return true;
+  return false;
+}
+
+async function speakLastTurn(sid, tab) {
+  try {
+    const r = await fetch(BRIDGE + '/speak?sid=' + encodeURIComponent(sid) +
+                          '&tab=' + encodeURIComponent(tab), { method: 'POST' });
+    return await r.json();
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+async function stopTts() {
+  try { await fetch(BRIDGE + '/speak/stop', { method: 'POST' }); } catch {}
+}
+
 async function loadClaudeSessions() {
   const list = document.getElementById('claude-list');
   const status = document.getElementById('claude-status');
@@ -454,6 +511,12 @@ function openClaudeSession(row) {
   document.getElementById('claude-session-label').textContent = row.label;
   document.getElementById('claude-transcript').textContent = 'loading…';
   show('claude-session');
+  // Narrow the TTY to match the WebView — handles sessions started outside
+  // the APK (default 80 cols), so the TUI redraws without horizontal scroll.
+  fetch(BRIDGE + '/resize?sid=' + encodeURIComponent(row.sid) +
+        '&tab=' + encodeURIComponent(row.tab) +
+        '&cols=' + TTY_COLS + '&rows=30',
+        { method: 'POST' }).catch(() => {});
   pollTranscript(row.sid, row.tab);
 }
 
@@ -465,9 +528,31 @@ function pollTranscript(sid, tab) {
       const j = await r.json();
       const el = document.getElementById('claude-transcript');
       const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
-      if (j.text && j.text.trim()) {
-        el.textContent = j.text;
+      const txt = j.text || '';
+      if (txt.trim()) {
+        el.textContent = txt;
         if (atBottom) el.scrollTop = el.scrollHeight;
+      }
+      // Voice-chat: once we've transcribed, watch for Claude's turn to finish,
+      // then TTS. Need (a) >=3s since transcribe (claude boot lag), (b) not
+      // busy, (c) 3 identical polls in a row (~4.5s steady).
+      if (waitingForReply && txt && (Date.now() - replyStartedAt > 3000)) {
+        if (looksBusy(txt)) {
+          replyStableCount = 0;
+          replyLastText = txt;
+        } else if (txt === replyLastText) {
+          replyStableCount += 1;
+          if (replyStableCount >= 3) {
+            waitingForReply = false;
+            const st = document.getElementById('speak-status');
+            st.textContent = 'speaking…';
+            const res = await speakLastTurn(sid, tab);
+            st.textContent = res.ok ? '' : 'speak: ' + (res.error || 'failed');
+          }
+        } else {
+          replyStableCount = 0;
+          replyLastText = txt;
+        }
       }
     } catch (e) {
       document.getElementById('claude-transcript').textContent = 'bridge offline: ' + e.message;
@@ -501,6 +586,24 @@ document.getElementById('claude-session-refresh').addEventListener('click', () =
   const [sid, tab] = label.split(' / ');
   if (sid && tab) pollTranscript(sid, tab);
 });
+document.getElementById('claude-voice-toggle').addEventListener('click', async () => {
+  voiceMode = !voiceMode;
+  localStorage.setItem('voiceMode', voiceMode ? '1' : '0');
+  updateVoiceToggle();
+  if (voiceMode) {
+    const label = document.getElementById('claude-session-label').textContent;
+    const [sid, tab] = label.split(' / ');
+    if (sid && tab) {
+      document.getElementById('speak-status').textContent = 'priming voice mode…';
+      await sendKickoff(sid, tab);
+    }
+  } else {
+    waitingForReply = false;
+    await stopTts();
+    document.getElementById('speak-status').textContent = 'voice off';
+  }
+});
+updateVoiceToggle();
 
 let speakRecording = false;
 let speakStart = 0;
@@ -525,6 +628,9 @@ document.getElementById('speak-btn').addEventListener('click', async () => {
   if (!speakRecording) {
     btn.disabled = true;
     st.textContent = 'opening mic…';
+    // Interrupt any speech in progress and reset reply-watch state.
+    waitingForReply = false;
+    await stopTts();
     try {
       if (NATIVE_REC) {
         const r = JSON.parse(AndroidRecorder.start());
@@ -551,6 +657,9 @@ document.getElementById('speak-btn').addEventListener('click', async () => {
 
   // stop + transcribe
   btn.disabled = true;
+  btn.classList.remove('listening');
+  btn.classList.add('transcribing');
+  btn.innerHTML = '&#9203; TRANSCRIBING…';
   clearInterval(speakTimer); speakTimer = null;
   st.textContent = 'transcribing…';
   try {
@@ -570,8 +679,15 @@ document.getElementById('speak-btn').addEventListener('click', async () => {
     const kb = j.bytes ? (j.bytes / 1024).toFixed(1) + ' KB' : '0';
     const tag = ' [' + db + ', ' + kb + ']';
     if (j.text && j.stuffed) {
-      // Success: clear the status line so the transcript isn't pushed down.
-      st.textContent = '';
+      if (voiceMode) {
+        st.textContent = 'Claude is thinking…';
+        waitingForReply = true;
+        replyLastText = '';
+        replyStableCount = 0;
+        replyStartedAt = Date.now();
+      } else {
+        st.textContent = '';
+      }
     } else if (j.text) {
       st.textContent = 'heard (not sent): "' + j.text + '"' + tag;
     } else if (j.max_db !== null && j.max_db < -30) {
@@ -585,6 +701,7 @@ document.getElementById('speak-btn').addEventListener('click', async () => {
     speakRecording = false;
     btn.disabled = false;
     btn.classList.remove('listening');
+    btn.classList.remove('transcribing');
     btn.innerHTML = '&#127908; SPEAK';
   }
 });

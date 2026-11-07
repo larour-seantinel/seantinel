@@ -4,22 +4,24 @@ Shipped work moved to [DONE.md](DONE.md). Pull in on demand.
 
 ## Next Up — Seantinel core
 
-- **Assistant app Termux-look + PAUSE shipped 2026-11-06.** Transcript
-  view restyled: pure black background, monospace throughout, flat chrome
-  (text buttons replace chunky pills), green `🎤 SPEAK` strip + orange
-  `⏸ PAUSE` (ESC) side-by-side in a 2:1 row. Fit without horizontal
-  scroll: sessions now spawn with `stty cols 38 rows 30` and the WebView
-  measures a monospace probe to size font-size so 38 cols + padding fills
-  `innerWidth` exactly (clamped 9–36 px). CLAUDE tile moved to top of
-  home grid, above TO-DO.
-- **Assistant app session management shipped 2026-11-06.** `+ NEW SESSION`
-  (spawns `screen -dmS sessionN bash` + stuffs `claude\r`), per-row `+ TAB`
-  (adds a window to an existing screen), per-row `×` (kills just that tab;
-  kills the whole screen only when it's the last tab). Bridge autostart on
-  APK launch via Termux `RUN_COMMAND` intent + boot script at
-  `~/.termux/boot/start-bridge`. Fixed zoom overflow in transcript view,
-  topbar restore (back `←` + refresh), scroll-to-top on screen change.
-  Tabs numbered by screen's `$WINDOW` (stable across PID wrap).
+- **Assistant app voice-chat loop shipped 2026-11-06.** Full SPEAK → whisper
+  → Claude → Android TTS → next SPEAK cycle. Toggle 🔇/🔊 bell in the session
+  topbar: on → bridge stuffs a one-shot kickoff instructing Claude to answer
+  in ≤50 spoken words plain prose for the session. After each transcribe the
+  WebView watches the hardcopy poll for 3 identical frames (~4.5s, gated by
+  3s post-transcribe), skips busy-spinner frames, then POSTs `/speak` which
+  extracts the last assistant turn from hardcopy (stops at `───` box borders,
+  `❯` prompt, `⏵` hint, `Opus … ctx:` footer, `✻ Brewed for Ns` annotation,
+  and tool-call `●/⏺ Name(...)` lines) and pipes it to `termux-tts-speak -s
+  MUSIC`. SPEAK button cycles 🎤 SPEAK → ■ STOP → ⏳ TRANSCRIBING… with
+  distinct colors. PAUSE moved to left, SPEAK to right and ~10% taller.
+  Bridge endpoints added: `/speak`, `/speak/stop`, `/stuff`, `/resize`.
+- **Existing-session TTY resize shipped 2026-11-06.** Sessions born outside
+  the APK (at Termux's native 46 cols) used to need horizontal scroll in the
+  WebView. `/resize` POST on attach runs `stty -F /proc/<claude_pid>/fd/0 cols
+  38 rows 30` to resize claude's slave PTY directly — bypasses screen (whose
+  `-X width` is a no-op while a display is attached). Kernel SIGWINCHes
+  claude → TUI redraws narrow.
 
 - **Fine-tune whisper on Eric's voice (Phase 2).** v0 uses generic
   `ggml-base.bin` multilingual; handles French-accented English OK but not
@@ -33,11 +35,19 @@ Shipped work moved to [DONE.md](DONE.md). Pull in on demand.
 - **`/ping` watchdog endpoint on the bridge.** So the WebView can distinguish
   "bridge dead" from "no claude sessions" without tripping the full
   `/sessions` scan.
-- **SUMMARY + REPEAT tiles under SPEAK.** Reference app has a 3-tile row.
-  SESSIONS back-tile was removed 2026-11-06 (topbar `←` handles it).
-  REPEAT = pull last assistant turn from `hardcopy`, feed to
-  `termux-tts-speak` (Piper later for a nicer voice). SUMMARY = ask Claude
-  in the active session to summarize the transcript.
+- **SUMMARY tile.** REPEAT shipped as part of the voice-chat auto-speak
+  flow; a manual REPEAT button would still be nice for replays without
+  going through another SPEAK. SUMMARY = ask Claude in the active session
+  to summarize the transcript, auto-speak the answer.
+- **Piper for a nicer TTS voice.** Android TTS is the robot default. Piper
+  on-device gives a natural voice at ~100 MB model cost. Swap in
+  `speak_last_turn()` — replace `termux-tts-speak` with `piper` pipe to
+  `aplay` or similar.
+- **TTS resize recovery.** If the Termux terminal is attached to the
+  same screen and triggers a redraw, the stty-forced 38 cols can snap
+  back to the display's size. Current mitigation: close + reopen the
+  session in the APK to re-fire `/resize`. Cleaner fix: detach the Termux
+  terminal, or make `/resize` idempotent on every hardcopy poll (cheap).
 - **Scroll-position lock in transcript.** Current logic always auto-scrolls
   to bottom when the user was at the bottom. If the user scrolls up to read
   older output, don't jerk them back on the next poll (works today, but UX

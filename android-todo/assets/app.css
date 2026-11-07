@@ -170,22 +170,25 @@ body.in-claude-session { background: #000; }
 }
 #claude-session .speak-btn {
   flex: 2;
-  padding: 16px 0; font-size: 20px; border-radius: 0;
+  padding: 22px 0; font-size: 20px; border-radius: 0;
   background: #000; color: #8ae234;
-  border: 0;
-  font-family: "Menlo", "Courier New", monospace;
-  font-weight: 400; letter-spacing: 1px;
-}
-#claude-session .speak-btn.listening { background: #000; color: #e45a8e; }
-#claude-session .pause-btn {
-  flex: 1;
-  padding: 16px 0; font-size: 18px; border-radius: 0;
-  background: #000; color: #f0a040;
   border: 0; border-left: 1px solid #222;
   font-family: "Menlo", "Courier New", monospace;
   font-weight: 400; letter-spacing: 1px;
 }
+#claude-session .speak-btn.listening { background: #000; color: #e45a8e; }
+#claude-session .speak-btn.transcribing { background: #000; color: #f0a040; }
+#claude-session .pause-btn {
+  flex: 1;
+  padding: 16px 0; font-size: 18px; border-radius: 0;
+  background: #000; color: #f0a040;
+  border: 0;
+  font-family: "Menlo", "Courier New", monospace;
+  font-weight: 400; letter-spacing: 1px;
+}
 #claude-session .pause-btn:active { background: #1a0e00; }
+#claude-session #claude-voice-toggle { color: #555; }
+#claude-session #claude-voice-toggle.on { color: #8ae234; }
 #claude-session .speak-extra { padding: 0; gap: 0; }
 #claude-session .back-tile {
   padding: 6px 0; font-size: 12px; border-radius: 0;
