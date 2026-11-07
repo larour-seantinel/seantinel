@@ -10,11 +10,11 @@
 
 <!-- HOME -->
 <section id="home" class="screen">
+  <button class="tile claude" data-tile="claude"> <span class="emoji">&#10033;</span><span class="label">CLAUDE</span></button>
   <button class="tile todo"   data-tile="todo">   <span class="emoji">&#9745;</span><span class="label">TO-DO</span></button>
   <button class="tile mail"   data-tile="mail">   <span class="emoji">&#128231;</span><span class="label">MAIL</span></button>
   <button class="tile news"   data-tile="news">   <span class="emoji">&#128240;</span><span class="label">NEWS</span></button>
   <button class="tile learn"  data-tile="learn">  <span class="emoji">&#128214;</span><span class="label">LEARN</span></button>
-  <button class="tile claude" data-tile="claude"> <span class="emoji">&#10033;</span><span class="label">CLAUDE</span></button>
 </section>
 
 <!-- TO-DO -->
@@ -75,7 +75,10 @@
 
   <div class="speak-bar">
     <div id="speak-status" class="speak-status">idle</div>
-    <button id="speak-btn" class="speak-btn">&#127908; SPEAK</button>
+    <div class="speak-row">
+      <button id="speak-btn" class="speak-btn">&#127908; SPEAK</button>
+      <button id="pause-btn" class="pause-btn" title="Send ESC to Claude">&#9208; PAUSE</button>
+    </div>
   </div>
 </section>
 

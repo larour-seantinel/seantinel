@@ -3,6 +3,47 @@
 Live notes. Shipped ISSM native-stack / APK / 3D rendering details live in
 [LEARNINGS-archive.md](LEARNINGS-archive.md) — pull in on demand.
 
+## Can't widen font without narrowing TTY first (2026-11-06)
+
+- **Symptom.** Transcript view: bumping font-size to fit a "30% bigger" ask
+  pushed the Claude TUI's padded output past the right edge. Reverting was
+  the same — any readable font-size shows horizontal scroll on phone
+  portrait (CSS width ≈ 384 px) because the default screen TTY is 80 cols.
+- **Fix.** Two coupled changes. (1) At session spawn (`new_session` +
+  `/session/addtab`) stuff `stty cols 38 rows 30;` before the `claude`
+  command so the TUI renders at 38 cols. (2) In the WebView, measure a
+  monospace probe at font-size 20px to get real char width, then set
+  transcript font-size = `(innerWidth - padding) * 20 / probeWidth`
+  (clamped 9–36 px). Beats the 0.6 × font-size approximation — Menlo's
+  actual ratio is slightly over 0.6, so a formula-based guess at 50 cols
+  left ~3% overflow and triggered a scrollbar.
+- **38 cols origin.** 50 / 1.3 ≈ 38 — gives 30% font bump without changing
+  pixel footprint of the TUI output.
+- **Existing sessions keep their old TTY.** Only fresh `+ NEW SESSION` /
+  `+ TAB` spawns pick up the new stty. User-visible: kill session1 after
+  the fix to see the new width.
+
+## `white-space: pre-wrap` on hardcopy wraps already-wrapped lines (2026-11-06)
+
+- `screen -X hardcopy` captures lines at the TTY's column width, already
+  wrapped. CSS `pre-wrap` on the transcript then re-wraps any line wider
+  than the viewport → the Claude TUI status bar (`Opus 4.7 | ctx:x% |
+  ...`) folded to two visual rows on narrow screens. Switch to
+  `white-space: pre; overflow-x: auto; touch-action: pan-x pan-y` and the
+  terminal rows stay 1:1 with visual rows; wider lines scroll horizontally
+  rather than fold.
+- `-webkit-overflow-scrolling: touch` + `min-height: 0` on the flex child
+  is required for the transcript to actually scroll inside a flex-column
+  parent. Without `min-height: 0`, flex refuses to shrink the child below
+  its content size and scrolling dies.
+
+## PAUSE = ESC via `screen -X stuff $'\x1b'` (2026-11-06)
+
+- Claude Code TUI cancels the in-flight operation on ESC. Easy to deliver
+  from the bridge: `screen -S <sid> -p <win> -X stuff "\x1b"`. Bridge
+  endpoint `POST /escape?sid&tab` wraps it. No need to synthesize key
+  events or involve Termux:API.
+
 ## `body { zoom: 1.3 }` cascades past child `zoom: 1` (2026-11-06)
 
 - **Symptom.** Opening a claude-session in the Assistant APK rendered the

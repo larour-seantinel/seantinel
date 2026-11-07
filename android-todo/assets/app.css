@@ -99,8 +99,8 @@ body.in-claude-session { zoom: 1; }
 /* claude transcript */
 .transcript { background: #0a0c18; color: #f4f6ff; border-radius: 10px;
   padding: 10px; font-family: "Menlo", "Courier New", monospace; font-size: 11px;
-  line-height: 1.3; white-space: pre-wrap; word-break: break-word;
-  overflow-y: auto; height: calc(100vh - 300px); margin: 0; }
+  line-height: 1.3; white-space: pre; word-break: normal;
+  overflow: auto; height: calc(100vh - 300px); margin: 0; }
 
 /* speak bar */
 .speak-bar { position: sticky; bottom: 0; display: flex; flex-direction: column;
@@ -118,23 +118,79 @@ body.in-claude-session { zoom: 1; }
   padding: 18px 0; }
 .back-tile:active { filter: brightness(1.15); }
 
-/* claude session — maximize transcript real estate (screen-like) */
+/* claude session — Termux look: pure black, flat chrome, monospace */
+body.in-claude-session { background: #000; }
 #claude-session.screen {
   zoom: 1; padding: 0;
   display: flex; flex-direction: column;
   height: 100vh; width: 100vw;
+  background: #000;
+  font-family: "Menlo", "Courier New", monospace;
 }
-#claude-session .topbar { margin: 0; padding: 6px 8px; flex: 0 0 auto; }
+#claude-session .topbar {
+  margin: 0; padding: 10px 12px; flex: 0 0 auto; gap: 12px;
+  background: #000;
+  border-bottom: 1px solid #222;
+}
+#claude-session .topbar .count {
+  color: #bbb; font-size: 18px; font-weight: 400;
+  font-family: "Menlo", "Courier New", monospace;
+  text-align: left;
+}
+#claude-session .pill {
+  background: transparent; color: #fff; padding: 8px 12px;
+  border-radius: 0; font-size: 22px; font-weight: 400;
+  font-family: "Menlo", "Courier New", monospace;
+}
+#claude-session .pill.x    { background: transparent; color: #ccc; }
+#claude-session .pill.gear { background: transparent; color: #ccc; }
 #claude-session .transcript {
-  flex: 1 1 auto; height: auto; width: 100%;
+  flex: 1 1 auto; min-height: 0; width: 100%;
   margin: 0; border-radius: 0;
   padding: 6px 8px; font-size: 12px;
+  background: #000; color: #fff;
+  white-space: pre; word-break: normal;
+  overflow: auto; -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain; touch-action: pan-y pan-x;
 }
 #claude-session .speak-bar {
-  padding: 4px 6px 6px; gap: 4px;
-  background: #0d0f1f;
+  padding: 0; gap: 0;
+  background: #000;
+  border-top: 1px solid #222;
 }
-#claude-session .speak-status { padding: 4px 6px; font-size: 11px; min-height: 14px; }
-#claude-session .speak-btn { padding: 14px 0; font-size: 18px; border-radius: 10px; }
-#claude-session .speak-extra { padding: 4px 0 2px; gap: 6px; }
-#claude-session .back-tile { padding: 10px 0; font-size: 13px; border-radius: 8px; }
+#claude-session .speak-status {
+  padding: 6px 12px; font-size: 16px; min-height: 20px;
+  background: #000; color: #bbb;
+  font-family: "Menlo", "Courier New", monospace;
+  text-align: left; border-radius: 0; font-weight: 400;
+}
+#claude-session .speak-row {
+  display: flex; gap: 0;
+  border-top: 1px solid #222;
+}
+#claude-session .speak-btn {
+  flex: 2;
+  padding: 16px 0; font-size: 20px; border-radius: 0;
+  background: #000; color: #8ae234;
+  border: 0;
+  font-family: "Menlo", "Courier New", monospace;
+  font-weight: 400; letter-spacing: 1px;
+}
+#claude-session .speak-btn.listening { background: #000; color: #e45a8e; }
+#claude-session .pause-btn {
+  flex: 1;
+  padding: 16px 0; font-size: 18px; border-radius: 0;
+  background: #000; color: #f0a040;
+  border: 0; border-left: 1px solid #222;
+  font-family: "Menlo", "Courier New", monospace;
+  font-weight: 400; letter-spacing: 1px;
+}
+#claude-session .pause-btn:active { background: #1a0e00; }
+#claude-session .speak-extra { padding: 0; gap: 0; }
+#claude-session .back-tile {
+  padding: 6px 0; font-size: 12px; border-radius: 0;
+  background: #000; color: #ccc;
+  border-top: 1px solid #222;
+  font-family: "Menlo", "Courier New", monospace;
+  font-weight: 400;
+}

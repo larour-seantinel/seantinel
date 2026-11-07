@@ -268,7 +268,8 @@ def new_session():
     )
     # Give screen a beat to finish creating the socket + spawn bash.
     time.sleep(0.3)
-    _run(["screen", "-S", sid, "-p", "0", "-X", "stuff", "cd ~/Seantinel && claude\r"])
+    _run(["screen", "-S", sid, "-p", "0", "-X", "stuff",
+          "stty cols 38 rows 30; cd ~/Seantinel && claude\r"])
     return {"sid": sid, "tab": "Tab1", "label": f"{sid} / Tab1"}
 
 
@@ -318,6 +319,15 @@ class H(http.server.BaseHTTPRequestHandler):
             return self._json({"ok": True})
         if u.path == "/session/new":
             return self._json(new_session())
+        if u.path == "/escape":
+            sid, tab = q.get("sid", ""), q.get("tab", "")
+            m = re.match(r"Tab(\d+)$", tab)
+            if not sid or not m:
+                return self._json({"ok": False, "error": "bad sid/tab"}, 400)
+            win = str(int(m.group(1)) - 1)
+            # ^[ = ESC (0x1b). Claude Code TUI cancels the in-flight operation.
+            _run(["screen", "-S", sid, "-p", win, "-X", "stuff", "\x1b"])
+            return self._json({"ok": True})
         if u.path == "/session/delete":
             sid, tab = q.get("sid", ""), q.get("tab", "")
             if not sid:
@@ -355,7 +365,7 @@ class H(http.server.BaseHTTPRequestHandler):
             _run(["screen", "-S", sid, "-X", "screen", str(next_win)])
             time.sleep(0.4)
             _run(["screen", "-S", sid, "-p", str(next_win), "-X",
-                  "stuff", "cd ~/Seantinel && claude\r"])
+                  "stuff", "stty cols 38 rows 30; cd ~/Seantinel && claude\r"])
             return self._json({"ok": True, "sid": sid, "tab": f"Tab{next_win+1}"})
         if u.path == "/record/stop":
             sid, tab = q.get("sid",""), q.get("tab","")

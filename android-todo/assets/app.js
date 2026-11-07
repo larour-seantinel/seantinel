@@ -23,12 +23,36 @@ function loadCfg() {
 function saveCfg(c) { S.cfg = c; localStorage.setItem('cfg', JSON.stringify(c)); }
 
 // ---------- nav ----------
+const TTY_COLS = 38; // must match stty cols in bridge.py new_session / addtab
+const fitTranscriptFont = () => {
+  const t = document.getElementById('claude-transcript');
+  if (!t) return;
+  // Measure actual monospace char width with a probe at a known font-size,
+  // then scale font-size so TTY_COLS chars + horizontal padding fit innerWidth.
+  const probe = document.createElement('span');
+  probe.style.cssText =
+    'font-family:"Menlo","Courier New",monospace;' +
+    'position:absolute;visibility:hidden;white-space:pre;' +
+    'font-size:20px;left:-9999px;top:0';
+  probe.textContent = 'X'.repeat(TTY_COLS);
+  document.body.appendChild(probe);
+  const widthAt20 = probe.getBoundingClientRect().width;
+  probe.remove();
+  if (widthAt20 <= 0) return;
+  const cs = getComputedStyle(t);
+  const pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + 2; // +2 safety
+  const target = Math.max(0, window.innerWidth - pad);
+  const px = Math.max(9, Math.min(36, target * 20 / widthAt20));
+  t.style.fontSize = px.toFixed(2) + 'px';
+};
 const show = id => {
   document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
   document.getElementById(id).classList.remove('hidden');
   document.body.classList.toggle('in-claude-session', id === 'claude-session');
+  if (id === 'claude-session') fitTranscriptFont();
   window.scrollTo(0, 0);
 };
+window.addEventListener('resize', fitTranscriptFont);
 document.querySelectorAll('[data-tile]').forEach(b => b.addEventListener('click', () => {
   const t = b.dataset.tile;
   if (t === 'todo') { show('todo'); loadTodo(); }
@@ -455,6 +479,21 @@ function pollTranscript(sid, tab) {
 function stopTranscriptPoll() {
   if (transcriptTimer) { clearInterval(transcriptTimer); transcriptTimer = null; }
 }
+
+document.getElementById('pause-btn').addEventListener('click', async () => {
+  const label = document.getElementById('claude-session-label').textContent;
+  const [sid, tab] = label.split(' / ');
+  if (!sid || !tab) return;
+  const st = document.getElementById('speak-status');
+  try {
+    await fetch(BRIDGE + '/escape?sid=' + encodeURIComponent(sid) + '&tab=' + encodeURIComponent(tab),
+                { method: 'POST' });
+    st.textContent = 'ESC sent';
+    setTimeout(() => { if (st.textContent === 'ESC sent') st.textContent = 'idle'; }, 1200);
+  } catch (e) {
+    st.textContent = 'pause failed: ' + e.message;
+  }
+});
 
 document.getElementById('claude-refresh').addEventListener('click', loadClaudeSessions);
 document.getElementById('claude-session-refresh').addEventListener('click', () => {

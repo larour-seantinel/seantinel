@@ -4,6 +4,14 @@ Shipped work moved to [DONE.md](DONE.md). Pull in on demand.
 
 ## Next Up — Seantinel core
 
+- **Assistant app Termux-look + PAUSE shipped 2026-11-06.** Transcript
+  view restyled: pure black background, monospace throughout, flat chrome
+  (text buttons replace chunky pills), green `🎤 SPEAK` strip + orange
+  `⏸ PAUSE` (ESC) side-by-side in a 2:1 row. Fit without horizontal
+  scroll: sessions now spawn with `stty cols 38 rows 30` and the WebView
+  measures a monospace probe to size font-size so 38 cols + padding fills
+  `innerWidth` exactly (clamped 9–36 px). CLAUDE tile moved to top of
+  home grid, above TO-DO.
 - **Assistant app session management shipped 2026-11-06.** `+ NEW SESSION`
   (spawns `screen -dmS sessionN bash` + stuffs `claude\r`), per-row `+ TAB`
   (adds a window to an existing screen), per-row `×` (kills just that tab;
